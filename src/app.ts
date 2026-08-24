@@ -67,7 +67,10 @@ export function createApp() {
       pinoHttp({
         logger,
         genReqId: (req) => (req as Request).requestId,
-        autoLogging: { ignore: (req) => req.url?.startsWith('/health') ?? false },
+        autoLogging: {
+          ignore: (req) =>
+            req.url === '/favicon.ico' || (req.url?.startsWith('/health') ?? false),
+        },
         customLogLevel: (_req, res, err) => {
           if (err || res.statusCode >= 500) return 'error';
           if (res.statusCode >= 400) return 'warn';
@@ -76,6 +79,33 @@ export function createApp() {
       }),
     );
   }
+
+  // --- Service index ------------------------------------------------------
+
+  // Opening the root in a browser should explain what this service is and
+  // where to go, rather than returning a bare 404.
+  app.get('/', (_req: Request, res: Response) => {
+    res.json({
+      success: true,
+      data: {
+        service: 'Wedding Photo Planet CRM API',
+        version: '1.0.0',
+        database: 'postgresql',
+        environment: env.NODE_ENV,
+        links: {
+          documentation: '/docs',
+          openapi: '/openapi.json',
+          health: '/health',
+          readiness: '/health/ready',
+          api: env.API_BASE_PATH,
+        },
+        hint: `Endpoints live under ${env.API_BASE_PATH} and require a bearer token from POST ${env.API_BASE_PATH}/auth/login`,
+      },
+    });
+  });
+
+  // Browsers request this unprompted; answer quietly instead of logging a 404.
+  app.get('/favicon.ico', (_req: Request, res: Response) => res.status(204).end());
 
   // --- Health -------------------------------------------------------------
 
