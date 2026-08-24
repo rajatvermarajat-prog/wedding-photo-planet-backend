@@ -1,0 +1,142 @@
+import express, { Request, Response } from 'express';
+import helmet from 'helmet';
+import cors from 'cors';
+import cookieParser from 'cookie-parser';
+import pinoHttp from 'pino-http';
+import swaggerUi from 'swagger-ui-express';
+
+import { env } from './config/env';
+import { logger } from './config/logger';
+import { prisma } from './config/prisma';
+import apiRoutes from './routes';
+import { requestId } from './middleware/requestId';
+import { errorHandler, notFoundHandler } from './middleware/errorHandler';
+import { generalLimiter } from './middleware/rateLimiter';
+import { jsonReplacer } from './utils/serialize';
+import { openApiDocument } from './docs/openapi';
+
+export function createApp() {
+  const app = express();
+
+  // Behind a load balancer / reverse proxy, `req.ip` and Secure cookies depend
+  // on X-Forwarded-* being honoured.
+  app.set('trust proxy', 1);
+  // BigInt (files.size_bytes) is not JSON-serialisable by default.
+  app.set('json replacer', jsonReplacer);
+  app.disable('x-powered-by');
+
+  app.use(requestId);
+
+  app.use(
+    helmet({
+      contentSecurityPolicy: env.isProduction ? undefined : false,
+      crossOriginResourcePolicy: { policy: 'same-site' },
+      referrerPolicy: { policy: 'no-referrer' },
+    }),
+  );
+
+  // Strict allowlist — an unknown Origin is rejected rather than reflected (§38).
+  app.use(
+    cors({
+      origin(origin, callback) {
+        if (!origin) return callback(null, true); // curl, server-to-server
+        if (env.corsOrigins.includes(origin)) return callback(null, true);
+        return callback(new Error('Origin not allowed by CORS policy'));
+      },
+      credentials: true,
+      methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+      allowedHeaders: [
+        'Content-Type',
+        'Authorization',
+        'X-Requested-With',
+        'Accept',
+        'Idempotency-Key',
+        'X-Request-Id',
+      ],
+      exposedHeaders: ['X-Request-Id', 'Idempotency-Replayed'],
+      maxAge: 86400,
+    }),
+  );
+
+  app.use(express.json({ limit: env.JSON_BODY_LIMIT }));
+  app.use(express.urlencoded({ extended: true, limit: env.JSON_BODY_LIMIT }));
+  app.use(cookieParser());
+
+  if (!env.isTest) {
+    app.use(
+      pinoHttp({
+        logger,
+        genReqId: (req) => (req as Request).requestId,
+        autoLogging: { ignore: (req) => req.url?.startsWith('/health') ?? false },
+        customLogLevel: (_req, res, err) => {
+          if (err || res.statusCode >= 500) return 'error';
+          if (res.statusCode >= 400) return 'warn';
+          return 'info';
+        },
+      }),
+    );
+  }
+
+  // --- Health -------------------------------------------------------------
+
+  app.get('/health', (_req: Request, res: Response) => {
+    res.json({
+      success: true,
+      data: {
+        status: 'ok',
+        service: 'wedding-photo-planet-backend',
+        environment: env.NODE_ENV,
+        uptimeSeconds: Math.round(process.uptime()),
+        timestamp: new Date().toISOString(),
+      },
+    });
+  });
+
+  // Readiness genuinely probes PostgreSQL (§39) — a process that cannot reach
+  // its database must not receive traffic.
+  app.get('/health/ready', async (_req: Request, res: Response) => {
+    const startedAt = Date.now();
+    try {
+      await prisma.$queryRaw`SELECT 1`;
+      res.json({
+        success: true,
+        data: {
+          status: 'ready',
+          database: { engine: 'postgresql', reachable: true, latencyMs: Date.now() - startedAt },
+          timestamp: new Date().toISOString(),
+        },
+      });
+    } catch (error) {
+      logger.error({ err: error }, 'readiness probe failed');
+      res.status(503).json({
+        success: false,
+        error: {
+          code: 'INTERNAL_ERROR',
+          message: 'PostgreSQL is not reachable',
+          details: [],
+        },
+      });
+    }
+  });
+
+  // --- API docs -----------------------------------------------------------
+
+  app.get('/openapi.json', (_req, res) => res.json(openApiDocument));
+  app.use(
+    '/docs',
+    swaggerUi.serve,
+    swaggerUi.setup(openApiDocument, {
+      customSiteTitle: 'Wedding Photo Planet CRM API',
+      swaggerOptions: { persistAuthorization: true },
+    }),
+  );
+
+  // --- API ----------------------------------------------------------------
+
+  app.use(env.API_BASE_PATH, generalLimiter, apiRoutes);
+
+  app.use(notFoundHandler);
+  app.use(errorHandler);
+
+  return app;
+}

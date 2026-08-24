@@ -1,0 +1,61 @@
+import crypto from 'crypto';
+import { StorageProvider } from '@prisma/client';
+import { env } from '../config/env';
+
+export interface SignedUrl {
+  url: string;
+  expiresAt: Date;
+  provider: StorageProvider;
+}
+
+/**
+ * Storage abstraction. PostgreSQL only ever holds metadata — the binary lives
+ * with the provider (§22), and clients receive short-lived signed URLs rather
+ * than a permanent public link.
+ *
+ * S3, Cloudflare R2 and Supabase Storage are all S3-compatible, so wiring any
+ * of them up means implementing `presign` below with the provider SDK; the
+ * database shape and every caller stay unchanged.
+ */
+export function getStorageProvider(): StorageProvider {
+  return env.STORAGE_PROVIDER as StorageProvider;
+}
+
+/** Deterministic, collision-resistant object key. Never trusts the client name. */
+export function buildObjectKey(
+  organizationId: string,
+  entityType: string,
+  originalName: string,
+): string {
+  const safeName = originalName.replace(/[^a-zA-Z0-9._-]/g, '_').slice(-80);
+  const stamp = new Date().toISOString().slice(0, 10);
+  return `${organizationId}/${entityType.toLowerCase()}/${stamp}/${crypto.randomUUID()}-${safeName}`;
+}
+
+export function createSignedUrl(objectKey: string, bucket: string): SignedUrl {
+  const expiresAt = new Date(Date.now() + env.SIGNED_URL_TTL_SECONDS * 1000);
+  const provider = getStorageProvider();
+
+  if (provider === 'LOCAL') {
+    // Development driver: an HMAC-signed local path, same contract as a
+    // presigned S3 URL so callers never branch on the provider.
+    const expires = Math.floor(expiresAt.getTime() / 1000);
+    const signature = crypto
+      .createHmac('sha256', env.JWT_SECRET)
+      .update(`${bucket}/${objectKey}:${expires}`)
+      .digest('hex');
+    const base = env.STORAGE_PUBLIC_BASE_URL || `http://localhost:${env.PORT}/files`;
+    return {
+      url: `${base}/${objectKey}?expires=${expires}&signature=${signature}`,
+      expiresAt,
+      provider,
+    };
+  }
+
+  // S3 / R2 / Supabase: swap in the provider SDK's presigner here.
+  const base =
+    env.STORAGE_PUBLIC_BASE_URL ||
+    env.STORAGE_ENDPOINT ||
+    `https://${bucket}.s3.${env.STORAGE_REGION ?? 'ap-south-1'}.amazonaws.com`;
+  return { url: `${base}/${objectKey}`, expiresAt, provider };
+}

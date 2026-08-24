@@ -1,0 +1,14 @@
+node_modules/
+dist/
+coverage/
+*.tsbuildinfo
+*.log
+.DS_Store
+
+# Never commit real environment values
+.env
+.env.*
+!.env.example
+
+# Local storage driver output
+uploads/
