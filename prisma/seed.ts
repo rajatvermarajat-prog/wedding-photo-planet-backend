@@ -242,20 +242,32 @@ async function main(): Promise<void> {
 
   for (const account of accounts) {
     const email = account.email.toLowerCase();
-    const user = await prisma.user.upsert({
-      where: { organizationId_email: { organizationId: organization.id, email } },
-      create: {
+    // Employee codes are also unique within an organisation. Resolve an
+    // existing seeded account by either stable identifier so changing the
+    // configured email does not attempt to create a duplicate employee code.
+    const existingUser = await prisma.user.findFirst({
+      where: {
         organizationId: organization.id,
-        branchId: branch.id,
-        email,
-        fullName: account.fullName,
-        employeeCode: account.employeeCode,
-        // Never log or print the password; only the hash is stored.
-        passwordHash: await hashPassword(account.password),
-        status: 'ACTIVE',
+        OR: [{ email }, { employeeCode: account.employeeCode }],
       },
-      update: {},
     });
+    const user = existingUser
+      ? await prisma.user.update({
+          where: { id: existingUser.id },
+          data: { email },
+        })
+      : await prisma.user.create({
+          data: {
+            organizationId: organization.id,
+            branchId: branch.id,
+            email,
+            fullName: account.fullName,
+            employeeCode: account.employeeCode,
+            // Never log or print the password; only the hash is stored.
+            passwordHash: await hashPassword(account.password),
+            status: 'ACTIVE',
+          },
+        });
 
     const roleId = roleIds.get(account.role);
     if (roleId) {
