@@ -34,7 +34,9 @@ export const logger = pino({
     censor: '[REDACTED]',
   },
   base: { service: 'wedding-photo-planet-backend' },
-  transport: env.isProduction
-    ? undefined
-    : { target: 'pino/file', options: { destination: 1 } },
+  // Worker-thread transports are not usable in serverless functions.
+  transport:
+    env.isProduction || process.env.VERCEL
+      ? undefined
+      : { target: 'pino/file', options: { destination: 1 } },
 });
