@@ -30,18 +30,23 @@ export function createApp() {
   app.use(
     helmet({
       contentSecurityPolicy: env.isProduction ? undefined : false,
-      crossOriginResourcePolicy: { policy: 'same-site' },
+      crossOriginResourcePolicy: { policy: 'cross-origin' },
       referrerPolicy: { policy: 'no-referrer' },
     }),
   );
 
   // Strict allowlist — an unknown Origin is rejected rather than reflected (§38).
+  const corsOrigins = env.corsOrigins.map((origin) => origin.replace(/\/$/, ''));
+  const vercelFrontend = /^https:\/\/wedding-photo-planet([a-z0-9-]+)?\.vercel\.app$/i;
   app.use(
     cors({
       origin(origin, callback) {
-        if (!origin) return callback(null, true); // curl, server-to-server
-        if (env.corsOrigins.includes(origin)) return callback(null, true);
-        return callback(new Error('Origin not allowed by CORS policy'));
+        if (!origin) return callback(null, true);
+        const normalized = origin.replace(/\/$/, '');
+        if (corsOrigins.includes(normalized) || vercelFrontend.test(normalized)) {
+          return callback(null, true);
+        }
+        return callback(null, false);
       },
       credentials: true,
       methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],

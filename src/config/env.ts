@@ -11,7 +11,11 @@ function withoutBlanks(input: NodeJS.ProcessEnv): Record<string, string | undefi
   return Object.fromEntries(
     Object.entries(input).map(([key, value]) => [
       key,
-      typeof value === 'string' && value.trim() === '' ? undefined : value,
+      typeof value === 'string' && value.trim() === ''
+        ? undefined
+        : typeof value === 'string'
+          ? value.trim().replace(/^["']|["']$/g, '')
+          : value,
     ]),
   );
 }
@@ -25,8 +29,10 @@ const bool = (defaultValue: 'true' | 'false') =>
 const int = (defaultValue: number) =>
   z.coerce.number().int().positive().default(defaultValue);
 
+const onVercel = Boolean(process.env.VERCEL);
+
 const schema = z.object({
-  NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
+  NODE_ENV: z.enum(['development', 'test', 'production']).default(onVercel ? 'production' : 'development'),
   PORT: int(5000),
   API_BASE_PATH: z.string().startsWith('/').default('/api/v1'),
 
@@ -45,10 +51,12 @@ const schema = z.object({
     .string()
     .min(32, 'REFRESH_TOKEN_SECRET must be at least 32 characters'),
   REFRESH_TOKEN_EXPIRES_IN: z.string().default('7d'),
-  COOKIE_SECURE: bool(process.env.NODE_ENV === 'production' ? 'true' : 'false'),
+  COOKIE_SECURE: bool(onVercel || process.env.NODE_ENV === 'production' ? 'true' : 'false'),
   COOKIE_DOMAIN: z.string().optional(),
 
-  CORS_ORIGIN: z.string().default('http://localhost:3000'),
+  CORS_ORIGIN: z
+    .string()
+    .default(onVercel ? 'https://wedding-photo-planet.vercel.app' : 'http://localhost:3000'),
 
   RATE_LIMIT_WINDOW_MS: int(15 * 60 * 1000),
   RATE_LIMIT_MAX: int(300),
@@ -88,6 +96,9 @@ if (!parsed.success) {
 }
 
 const raw = parsed.data;
+if (onVercel && !/sslmode=/i.test(raw.DATABASE_URL)) {
+  raw.DATABASE_URL += `${raw.DATABASE_URL.includes('?') ? '&' : '?'}sslmode=require`;
+}
 
 export const env = {
   ...raw,
