@@ -2,7 +2,9 @@ import path from 'path';
 import dotenv from 'dotenv';
 import { z } from 'zod';
 
-dotenv.config({ path: path.resolve(process.cwd(), '.env'), quiet: true });
+if (!process.env.VERCEL) {
+  dotenv.config({ path: path.resolve(process.cwd(), '.env'), quiet: true });
+}
 
 /** Vercel/dashboard often stores unused keys as "". Zod defaults only apply to undefined. */
 function withoutBlanks(input: NodeJS.ProcessEnv): Record<string, string | undefined> {
