@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import * as controller from '../controllers/crm.controller';
 import { validate } from '../middleware/validate';
-import { requirePermission } from '../middleware/rbac';
+import { requireAnyPermission, requirePermission } from '../middleware/rbac';
 import { idParam } from '../validators/common.validator';
 import {
   clientListQuery,
@@ -20,13 +20,13 @@ export const clientRouter = Router();
 
 clientRouter.get(
   '/',
-  requirePermission('CLIENT_VIEW'),
+  requireAnyPermission('CLIENT_VIEW', 'CLIENT_CREATE', 'PROJECT_CREATE'),
   validate({ query: clientListQuery }),
   controller.listClients,
 );
 clientRouter.post(
   '/',
-  requirePermission('CLIENT_CREATE'),
+  requireAnyPermission('CLIENT_CREATE', 'PROJECT_CREATE'),
   validate({ body: createClientSchema }),
   controller.createClient,
 );

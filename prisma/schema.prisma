@@ -455,6 +455,7 @@ model Organization {
   freelancerPayouts FreelancerPayout[]
   attendances      Attendance[]
   leaveRequests    LeaveRequest[]
+  personalTodos    PersonalTodo[]
   files            FileObject[]
   notifications    Notification[]
   auditLogs        AuditLog[]
@@ -564,6 +565,7 @@ model User {
 
   attendances       Attendance[]   @relation("AttendanceUser")
   attendancesMarked Attendance[]   @relation("AttendanceMarkedBy")
+  personalTodos     PersonalTodo[]
   leaveRequests     LeaveRequest[] @relation("LeaveRequestUser")
   leaveReviews      LeaveRequest[] @relation("LeaveRequestReviewer")
 
@@ -1300,6 +1302,29 @@ model Task {
   @@index([projectId])
   @@index([organizationId, status])
   @@map("tasks")
+}
+
+/// Private checklist that belongs only to the signed-in employee.
+/// Never listed across users — every query is scoped to `userId`.
+model PersonalTodo {
+  id             String       @id @default(uuid()) @db.Uuid
+  organizationId String       @map("organization_id") @db.Uuid
+  userId         String       @map("user_id") @db.Uuid
+  title          String       @db.VarChar(200)
+  priority       TaskPriority @default(MEDIUM)
+  dueDate        DateTime?    @map("due_date") @db.Date
+  completed      Boolean      @default(false)
+  completedAt    DateTime?    @map("completed_at") @db.Timestamptz(6)
+  createdAt      DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime     @updatedAt @map("updated_at") @db.Timestamptz(6)
+  deletedAt      DateTime?    @map("deleted_at") @db.Timestamptz(6)
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, completed])
+  @@index([organizationId, userId])
+  @@map("personal_todos")
 }
 
 /// Full reassignment trail — every change of task ownership is auditable.

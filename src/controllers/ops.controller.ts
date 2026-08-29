@@ -4,6 +4,7 @@ import * as taskService from '../services/task.service';
 import * as deliveryService from '../services/delivery.service';
 import * as freelancerService from '../services/freelancer.service';
 import * as attendanceService from '../services/attendance.service';
+import * as personalTodoService from '../services/personalTodo.service';
 
 // --- Tasks ----------------------------------------------------------------
 
@@ -216,4 +217,34 @@ export const reviewLeave = asyncHandler(async (req, res) => {
       auditContext(req),
     ),
   );
+});
+
+// --- Personal to-dos (always scoped to the signed-in user) ----------------
+
+export const listPersonalTodos = asyncHandler(async (req, res) => {
+  const auth = requireAuthContext(req);
+  const { items, pagination } = await personalTodoService.listPersonalTodos(auth, req.query);
+  return sendSuccess(res, items, { pagination });
+});
+
+export const createPersonalTodo = asyncHandler(async (req, res) => {
+  const auth = requireAuthContext(req);
+  return sendCreated(res, await personalTodoService.createPersonalTodo(auth, req.body));
+});
+
+export const updatePersonalTodo = asyncHandler(async (req, res) => {
+  const auth = requireAuthContext(req);
+  return sendSuccess(res, await personalTodoService.updatePersonalTodo(auth, req.params.id, req.body));
+});
+
+export const removePersonalTodo = asyncHandler(async (req, res) => {
+  const auth = requireAuthContext(req);
+  await personalTodoService.deletePersonalTodo(auth, req.params.id);
+  return sendNoContent(res);
+});
+
+export const clearCompletedPersonalTodos = asyncHandler(async (req, res) => {
+  const auth = requireAuthContext(req);
+  const result = await personalTodoService.clearCompletedPersonalTodos(auth);
+  return sendSuccess(res, { cleared: result.count });
 });

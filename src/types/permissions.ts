@@ -23,6 +23,19 @@ const define = (
   }));
 
 export const PERMISSIONS: PermissionDefinition[] = [
+  ...define('dashboard', [
+    ['DASHBOARD_VIEW', 'Open the studio dashboard'],
+    ['DASHBOARD_KPI', 'Show project KPI cards'],
+    ['DASHBOARD_FINANCIAL', 'Show revenue, payments, expenses and payroll', true],
+    ['DASHBOARD_UPCOMING', 'Show upcoming shoots'],
+    ['DASHBOARD_PROJECTS', 'Show project deadlines'],
+    ['DASHBOARD_TEAM', 'Show team activity'],
+    ['DASHBOARD_TASKS', 'Show assigned tasks'],
+    ['DASHBOARD_ATTENDANCE', 'Show my attendance'],
+    ['DASHBOARD_TODOS', 'Show personal to-do'],
+    ['DASHBOARD_QUICK_ACTIONS', 'Show quick actions'],
+    ['DASHBOARD_ALERTS', 'Show studio alerts'],
+  ]),
   ...define('organization', [
     ['ORG_VIEW', 'View organization profile'],
     ['ORG_UPDATE', 'Update organization profile', true],
@@ -34,11 +47,8 @@ export const PERMISSIONS: PermissionDefinition[] = [
     ['BRANCH_DELETE', 'Delete branch', true],
   ]),
   ...define('user', [
-    ['USER_VIEW', 'View users'],
-    ['USER_CREATE', 'Create user', true],
-    ['USER_UPDATE', 'Update user', true],
-    ['USER_DELETE', 'Delete user', true],
-    ['USER_MANAGE', 'Manage users, status and role assignment', true],
+    ['USER_VIEW', 'View employee accounts'],
+    ['USER_MANAGE', 'Assign roles and reset passwords', true],
   ]),
   ...define('role', [
     ['ROLE_VIEW', 'View roles'],
@@ -84,6 +94,9 @@ export const PERMISSIONS: PermissionDefinition[] = [
   ]),
   ...define('team', [
     ['TEAM_VIEW', 'View team directory'],
+    ['USER_CREATE', 'Create employee', true],
+    ['USER_UPDATE', 'Edit employee', true],
+    ['USER_DELETE', 'Delete employee', true],
     ['TEAM_MANAGE', 'Manage employee profiles', true],
   ]),
   ...define('freelancer', [
@@ -99,13 +112,14 @@ export const PERMISSIONS: PermissionDefinition[] = [
     ['TASK_UPDATE', 'Update task'],
     ['TASK_DELETE', 'Delete task', true],
     ['TASK_ASSIGN', 'Assign or reassign a task'],
+    ['PERSONAL_TODO', 'Manage own personal to-do list'],
   ]),
   ...define('attendance', [
     ['ATTENDANCE_VIEW', 'View attendance'],
     ['ATTENDANCE_MARK', 'Mark own attendance'],
-    ['ATTENDANCE_MANAGE', 'Manage attendance for other users', true],
+    ['ATTENDANCE_MANAGE', 'Mark or edit attendance for others', true],
     ['LEAVE_VIEW', 'View leave requests'],
-    ['LEAVE_REQUEST', 'Raise a leave request'],
+    ['LEAVE_REQUEST', 'Apply for leave'],
     ['LEAVE_APPROVE', 'Approve or reject leave', true],
   ]),
   ...define('quotation', [
@@ -189,6 +203,14 @@ const MEMBER_ALLOWED = new Set([
   'FREELANCER_VIEW',
   'TASK_VIEW',
   'TASK_UPDATE',
+  'PERSONAL_TODO',
+  'DASHBOARD_VIEW',
+  'DASHBOARD_KPI',
+  'DASHBOARD_UPCOMING',
+  'DASHBOARD_PROJECTS',
+  'DASHBOARD_TASKS',
+  'DASHBOARD_ATTENDANCE',
+  'DASHBOARD_TODOS',
   'ATTENDANCE_VIEW',
   'ATTENDANCE_MARK',
   'LEAVE_VIEW',
@@ -202,6 +224,13 @@ const MEMBER_ALLOWED = new Set([
   'SETTING_VIEW',
   'DATA_MANAGEMENT_VIEW',
 ]);
+
+/** Every role keeps these keys — they cannot be revoked from the Roles UI. */
+export const ALWAYS_GRANTED_KEYS = ['NOTIFICATION_VIEW'] as const;
+
+export function withAlwaysGranted(keys: string[]): string[] {
+  return [...new Set([...keys, ...ALWAYS_GRANTED_KEYS])];
+}
 
 /** Default permission bundle for each seeded system role. */
 export function permissionsForSystemRole(role: SystemRole): string[] {

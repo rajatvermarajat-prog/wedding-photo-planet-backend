@@ -1,4 +1,4 @@
-import { Prisma, ProjectStatus, ProjectType } from '@prisma/client';
+import { Prisma, ProjectStatus, ProjectType, TaskStatus } from '@prisma/client';
 import { prisma } from '../config/prisma';
 import { andWhere, findScoped, paginate, searchFilter } from '../repositories/base.repository';
 import { resolveSort } from '../utils/pagination';
@@ -120,6 +120,12 @@ export interface CreateProjectInput {
     city?: string;
     notes?: string;
   }>;
+  tasks?: Array<{
+    title: string;
+    quantity?: number;
+    unit?: string;
+    assigneeId?: string;
+  }>;
 }
 
 /**
@@ -199,6 +205,56 @@ export async function createProject(
         reason: 'Project created',
       },
     });
+
+    const notified = new Set<string>();
+    for (const item of input.tasks ?? []) {
+      let assigneeId = item.assigneeId;
+      if (assigneeId) {
+        const assignee = await tx.user.findFirst({
+          where: { id: assigneeId, organizationId: auth.organizationId, deletedAt: null },
+          select: { id: true },
+        });
+        if (!assignee) assigneeId = undefined;
+      }
+
+      const task = await tx.task.create({
+        data: {
+          organizationId: auth.organizationId,
+          projectId: project.id,
+          clientId: input.clientId,
+          title: item.title,
+          quantity: item.quantity ?? 1,
+          unit: item.unit,
+          status: assigneeId ? TaskStatus.ASSIGNED : TaskStatus.TODO,
+          assigneeId,
+          createdById: auth.userId,
+        },
+      });
+
+      if (!assigneeId) continue;
+      await tx.taskAssignment.create({
+        data: {
+          taskId: task.id,
+          fromUserId: null,
+          toUserId: assigneeId,
+          assignedById: auth.userId,
+          reason: 'Assigned on project create',
+        },
+      });
+      if (notified.has(assigneeId)) continue;
+      notified.add(assigneeId);
+      await tx.notification.create({
+        data: {
+          organizationId: auth.organizationId,
+          userId: assigneeId,
+          type: 'TASK_ASSIGNED',
+          title: 'You were assigned to a project',
+          message: `${project.name}: ${item.title}`,
+          entityType: 'Project',
+          entityId: project.id,
+        },
+      });
+    }
 
     await recordAudit(tx, ctx, {
       action: 'CREATE',

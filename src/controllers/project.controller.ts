@@ -120,9 +120,18 @@ export const createShoot = asyncHandler(async (req, res) => {
 
 export const updateShoot = asyncHandler(async (req, res) => {
   const auth = requireAuthContext(req);
+  const body = auth.permissions.has('SHOOT_UPDATE')
+    ? req.body
+    : Object.fromEntries(
+        Object.entries({
+          dataSizeGb: req.body.dataSizeGb,
+          dataReceivedAt: req.body.dataReceivedAt,
+          backupDoneAt: req.body.backupDoneAt,
+        }).filter(([, value]) => value !== undefined),
+      );
   return sendSuccess(
     res,
-    await shootService.updateShoot(auth, req.params.id, req.body, auditContext(req)),
+    await shootService.updateShoot(auth, req.params.id, body, auditContext(req)),
   );
 });
 
@@ -142,13 +151,23 @@ export const assignCrew = asyncHandler(async (req, res) => {
 
 export const updateAssignment = asyncHandler(async (req, res) => {
   const auth = requireAuthContext(req);
+  const body = auth.permissions.has('SHOOT_ASSIGN')
+    ? req.body
+    : Object.fromEntries(
+        Object.entries({
+          dataReceived: req.body.dataReceived,
+          dataSizeGb: req.body.dataSizeGb,
+          storageReference: req.body.storageReference,
+          notes: req.body.notes,
+        }).filter(([, value]) => value !== undefined),
+      );
   return sendSuccess(
     res,
     await shootService.updateAssignment(
       auth,
       req.params.id,
       req.params.assignmentId,
-      req.body,
+      body,
       auditContext(req),
     ),
   );

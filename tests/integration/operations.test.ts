@@ -351,6 +351,39 @@ describe('operations: expenses, tasks, deliveries, data management', () => {
     expect(response.body.data[0].summary.totalDataGb).toBe('0');
   });
 
+  // --- Personal to-dos ----------------------------------------------------
+
+  it('keeps personal to-dos private to the signed-in employee', async () => {
+    const created = await authed(memberToken)
+      .post(`${base}/me/todos`)
+      .send({ title: 'Cull my own selects', priority: 'HIGH', dueDate: '2026-09-01' })
+      .expect(201);
+
+    expect(created.body.data.title).toBe('Cull my own selects');
+    expect(created.body.data.userId).toBe(org.member.id);
+    expect(created.body.data.completed).toBe(false);
+
+    const mine = await authed(memberToken).get(`${base}/me/todos`).expect(200);
+    expect(mine.body.data).toHaveLength(1);
+    expect(mine.body.data[0].id).toBe(created.body.data.id);
+
+    const adminList = await authed(adminToken).get(`${base}/me/todos`).expect(200);
+    expect(adminList.body.data).toHaveLength(0);
+
+    await authed(adminToken).patch(`${base}/me/todos/${created.body.data.id}`).send({ completed: true }).expect(404);
+    await authed(managerToken).delete(`${base}/me/todos/${created.body.data.id}`).expect(404);
+
+    const toggled = await authed(memberToken)
+      .patch(`${base}/me/todos/${created.body.data.id}`)
+      .send({ completed: true })
+      .expect(200);
+    expect(toggled.body.data.completed).toBe(true);
+
+    await authed(memberToken).delete(`${base}/me/todos/completed`).expect(200);
+    const afterClear = await authed(memberToken).get(`${base}/me/todos`).expect(200);
+    expect(afterClear.body.data).toHaveLength(0);
+  });
+
   // --- Health -------------------------------------------------------------
 
   it('reports readiness only when PostgreSQL answers', async () => {

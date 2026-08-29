@@ -15,6 +15,9 @@ import {
   freelancerPayoutSchema,
   leaveListQuery,
   markAttendanceSchema,
+  personalTodoListQuery,
+  createPersonalTodoSchema,
+  updatePersonalTodoSchema,
   reassignTaskSchema,
   requestLeaveSchema,
   reviewLeaveSchema,
@@ -188,4 +191,36 @@ attendanceRouter.post(
   requirePermission('LEAVE_APPROVE'),
   validate({ params: idParam, body: reviewLeaveSchema }),
   controller.reviewLeave,
+);
+
+export const personalTodoRouter = Router();
+
+personalTodoRouter.get(
+  '/',
+  requirePermission('PERSONAL_TODO'),
+  validate({ query: personalTodoListQuery }),
+  controller.listPersonalTodos,
+);
+personalTodoRouter.post(
+  '/',
+  requirePermission('PERSONAL_TODO'),
+  validate({ body: createPersonalTodoSchema }),
+  controller.createPersonalTodo,
+);
+personalTodoRouter.delete(
+  '/completed',
+  requirePermission('PERSONAL_TODO'),
+  controller.clearCompletedPersonalTodos,
+);
+personalTodoRouter.patch(
+  '/:id',
+  requirePermission('PERSONAL_TODO'),
+  validate({ params: idParam, body: updatePersonalTodoSchema }),
+  controller.updatePersonalTodo,
+);
+personalTodoRouter.delete(
+  '/:id',
+  requirePermission('PERSONAL_TODO'),
+  validate({ params: idParam }),
+  controller.removePersonalTodo,
 );

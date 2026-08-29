@@ -341,6 +341,7 @@ export async function getProjectDataStatus(
                 dataReceived: true,
                 dataSizeGb: true,
                 storageReference: true,
+                notes: true,
                 user: { select: { id: true, fullName: true } },
                 freelancer: { select: { id: true, fullName: true } },
               },

@@ -3,12 +3,15 @@ import { createApp } from './app';
 import { env } from './config/env';
 import { logger } from './config/logger';
 import { prisma } from './config/prisma';
+import { syncPermissionCatalogue } from './services/permissionCatalogue.service';
 
 async function main(): Promise<void> {
   // Fail fast if PostgreSQL is unreachable rather than accepting traffic and
   // erroring on every request.
   await prisma.$connect();
   logger.info('connected to PostgreSQL');
+  const added = await syncPermissionCatalogue();
+  if (added) logger.info({ added }, 'permission catalogue synced');
 
   const server = http.createServer(createApp());
 

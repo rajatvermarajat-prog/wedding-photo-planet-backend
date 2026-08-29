@@ -63,11 +63,22 @@ export const createProjectSchema = z.object({
   notes: z.string().max(5000).optional(),
   managerId: uuid.optional(),
   events: z.array(embeddedEventSchema).max(30).optional(),
+  tasks: z
+    .array(
+      z.object({
+        title: z.string().trim().min(1).max(200),
+        quantity: z.coerce.number().int().min(1).max(100000).optional(),
+        unit: z.string().max(32).optional(),
+        assigneeId: uuid.optional(),
+      }),
+    )
+    .max(50)
+    .optional(),
 });
 
 export const updateProjectSchema = createProjectSchema
   .partial()
-  .omit({ clientId: true, events: true, leadId: true });
+  .omit({ clientId: true, events: true, leadId: true, tasks: true });
 
 export const projectStatusSchema = z.object({
   status: PROJECT_STATUS,

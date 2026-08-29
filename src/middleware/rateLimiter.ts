@@ -4,8 +4,8 @@ import { env } from '../config/env';
 const shared: Partial<Options> = {
   standardHeaders: 'draft-7',
   legacyHeaders: false,
-  // Tests would otherwise trip the auth limiter across cases.
-  skip: () => env.isTest,
+  // Tests and local HMR would otherwise trip the limiter.
+  skip: () => env.isTest || env.isDevelopment,
   handler: (_req, res) => {
     res.status(429).json({
       success: false,

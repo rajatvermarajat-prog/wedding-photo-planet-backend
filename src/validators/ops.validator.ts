@@ -82,6 +82,25 @@ export const reassignTaskSchema = z.object({
   reason: z.string().max(500).optional(),
 });
 
+export const PERSONAL_TODO_PRIORITY = z.enum(['LOW', 'MEDIUM', 'HIGH']);
+
+export const personalTodoListQuery = listQuery.extend({
+  completed: z.enum(['true', 'false']).transform((v) => v === 'true').optional(),
+});
+
+export const createPersonalTodoSchema = z.object({
+  title: z.string().trim().min(1).max(200),
+  priority: PERSONAL_TODO_PRIORITY.optional(),
+  dueDate: toDate.optional(),
+});
+
+export const updatePersonalTodoSchema = z.object({
+  title: z.string().trim().min(1).max(200).optional(),
+  priority: PERSONAL_TODO_PRIORITY.optional(),
+  dueDate: toDate.optional().nullable(),
+  completed: z.boolean().optional(),
+});
+
 // --- Deliveries -----------------------------------------------------------
 
 export const DELIVERY_STATUS = z.enum([

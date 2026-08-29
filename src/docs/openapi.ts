@@ -291,6 +291,7 @@ export const openApiDocument = {
     { name: 'Shoots', description: 'Shoot days and crew assignment' },
     { name: 'Freelancers', description: 'External crew and payouts' },
     { name: 'Tasks', description: 'Editing and studio work' },
+    { name: 'Personal Todos', description: 'Private employee to-do list, visible only to the signed-in user' },
     { name: 'Deliveries', description: 'Client deliverables' },
     { name: 'Attendance', description: 'Attendance and leave' },
     { name: 'Quotations', description: 'Proposals' },
@@ -742,6 +743,65 @@ export const openApiDocument = {
       ],
     }),
     ...statusAction('Tasks', `${base}/tasks/{id}/status`, 'Change task status', 'TASK_UPDATE'),
+    [`${base}/me/todos`]: {
+      get: {
+        tags: ['Personal Todos'],
+        summary: 'List my personal to-dos',
+        description: 'Returns only the signed-in user’s private to-dos. Requires `PERSONAL_TODO`.',
+        parameters: [
+          PARAMS.page,
+          PARAMS.limit,
+          PARAMS.search,
+          { name: 'completed', in: 'query', schema: { type: 'string', enum: ['true', 'false'] } },
+        ],
+        responses: { 200: listResponse('A page of personal to-dos'), ...COMMON_ERRORS },
+      },
+      post: {
+        tags: ['Personal Todos'],
+        summary: 'Create a personal to-do',
+        description: 'Always assigned to the signed-in user. Requires `PERSONAL_TODO`.',
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                required: ['title'],
+                properties: {
+                  title: { type: 'string', maxLength: 200 },
+                  priority: { type: 'string', enum: ['LOW', 'MEDIUM', 'HIGH'] },
+                  dueDate: { type: 'string', format: 'date' },
+                },
+              },
+            },
+          },
+        },
+        responses: { 201: okResponse('The created personal to-do'), ...COMMON_ERRORS },
+      },
+    },
+    [`${base}/me/todos/completed`]: {
+      delete: {
+        tags: ['Personal Todos'],
+        summary: 'Clear my completed personal to-dos',
+        description: 'Soft-deletes completed items owned by the signed-in user. Requires `PERSONAL_TODO`.',
+        responses: { 200: okResponse('Cleared count'), ...COMMON_ERRORS },
+      },
+    },
+    [`${base}/me/todos/{id}`]: {
+      patch: {
+        tags: ['Personal Todos'],
+        summary: 'Update my personal to-do',
+        description: 'Rejected with 404 if the item is not owned by the signed-in user. Requires `PERSONAL_TODO`.',
+        parameters: [PARAMS.id],
+        responses: { 200: okResponse('Updated personal to-do'), ...COMMON_ERRORS },
+      },
+      delete: {
+        tags: ['Personal Todos'],
+        summary: 'Delete my personal to-do',
+        parameters: [PARAMS.id],
+        responses: { 204: { description: 'Removed' }, ...COMMON_ERRORS },
+      },
+    },
     [`${base}/tasks/{id}/reassign`]: {
       post: {
         tags: ['Tasks'],
@@ -981,7 +1041,7 @@ export const openApiDocument = {
         tags: ['Roles'],
         summary: 'Replace a role’s permission set',
         description:
-          'The added/removed diff is written to the audit log. The ADMIN role cannot be narrowed. Requires `PERMISSION_ASSIGN`.',
+          'The added/removed diff is written to the audit log. ADMIN can only change dashboard widget permissions; every other Admin permission stays granted. Requires `PERMISSION_ASSIGN`.',
         parameters: [PARAMS.id],
         responses: { 200: okResponse('Updated role'), ...COMMON_ERRORS },
       },

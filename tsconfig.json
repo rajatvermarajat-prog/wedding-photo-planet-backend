@@ -2,8 +2,8 @@
   "compilerOptions": {
     "target": "ES2022",
     "lib": ["ES2022"],
-    "module": "commonjs",
-    "moduleResolution": "node",
+    "module": "node16",
+    "moduleResolution": "node16",
     "rootDir": ".",
     "outDir": "dist",
     "strict": true,
@@ -16,8 +16,7 @@
     "resolveJsonModule": true,
     "skipLibCheck": true,
     "sourceMap": true,
-    "declaration": false,
-    "baseUrl": "."
+    "declaration": false
   },
   "include": ["src/**/*.ts", "prisma/**/*.ts", "tests/**/*.ts", "eslint.config.mjs"],
   "exclude": ["node_modules", "dist"]

@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import * as controller from '../controllers/admin.controller';
 import { validate } from '../middleware/validate';
-import { requirePermission } from '../middleware/rbac';
+import { requireAnyPermission, requirePermission } from '../middleware/rbac';
 import { dateRangeQuery, idParam, listQuery } from '../validators/common.validator';
 import {
   auditListQuery,
@@ -28,7 +28,7 @@ export const userRouter = Router();
 
 userRouter.get(
   '/',
-  requirePermission('USER_VIEW'),
+  requireAnyPermission('USER_VIEW', 'TEAM_VIEW', 'PROJECT_CREATE', 'TASK_CREATE'),
   validate({ query: userListQuery }),
   controller.listUsers,
 );
@@ -46,7 +46,7 @@ userRouter.get(
 );
 userRouter.patch(
   '/:id',
-  requirePermission('USER_UPDATE'),
+  requireAnyPermission('USER_UPDATE', 'TEAM_MANAGE'),
   validate({ params: idParam, body: updateUserSchema }),
   controller.updateUser,
 );
@@ -249,7 +249,7 @@ dataManagementRouter.get(
 export const teamRouter = Router();
 teamRouter.get(
   '/',
-  requirePermission('TEAM_VIEW'),
+  requireAnyPermission('TEAM_VIEW', 'USER_VIEW', 'PROJECT_CREATE', 'TASK_CREATE'),
   validate({ query: userListQuery }),
   controller.listUsers,
 );

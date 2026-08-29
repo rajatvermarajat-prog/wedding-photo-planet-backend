@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import * as controller from '../controllers/project.controller';
 import { validate } from '../middleware/validate';
-import { requirePermission } from '../middleware/rbac';
+import { requireAnyPermission, requirePermission } from '../middleware/rbac';
 import { idParam } from '../validators/common.validator';
 import {
   assignCrewSchema,
@@ -24,7 +24,7 @@ export const projectRouter = Router();
 
 projectRouter.get(
   '/',
-  requirePermission('PROJECT_VIEW'),
+  requireAnyPermission('PROJECT_VIEW', 'DATA_MANAGEMENT_VIEW'),
   validate({ query: projectListQuery }),
   controller.list,
 );
@@ -36,7 +36,7 @@ projectRouter.post(
 );
 projectRouter.get(
   '/:id',
-  requirePermission('PROJECT_VIEW'),
+  requireAnyPermission('PROJECT_VIEW', 'DATA_MANAGEMENT_VIEW'),
   validate({ params: idParam }),
   controller.get,
 );
@@ -109,7 +109,7 @@ export const shootRouter = Router();
 
 shootRouter.get(
   '/',
-  requirePermission('SHOOT_VIEW'),
+  requireAnyPermission('SHOOT_VIEW', 'DATA_MANAGEMENT_VIEW'),
   validate({ query: shootListQuery }),
   controller.listShoots,
 );
@@ -121,13 +121,13 @@ shootRouter.post(
 );
 shootRouter.get(
   '/:id',
-  requirePermission('SHOOT_VIEW'),
+  requireAnyPermission('SHOOT_VIEW', 'DATA_MANAGEMENT_VIEW'),
   validate({ params: idParam }),
   controller.getShoot,
 );
 shootRouter.patch(
   '/:id',
-  requirePermission('SHOOT_UPDATE'),
+  requireAnyPermission('SHOOT_UPDATE', 'DATA_MANAGEMENT_VIEW'),
   validate({ params: idParam, body: updateShootSchema }),
   controller.updateShoot,
 );
@@ -145,7 +145,7 @@ shootRouter.post(
 );
 shootRouter.patch(
   '/:id/assignments/:assignmentId',
-  requirePermission('SHOOT_ASSIGN'),
+  requireAnyPermission('SHOOT_ASSIGN', 'DATA_MANAGEMENT_VIEW'),
   validate({ params: assignmentParams, body: updateAssignmentSchema }),
   controller.updateAssignment,
 );

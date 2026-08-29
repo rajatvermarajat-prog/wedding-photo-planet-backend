@@ -1,5 +1,6 @@
 import { RoleType } from '@prisma/client';
 import { prisma } from '../config/prisma';
+import { withAlwaysGranted } from '../types/permissions';
 import { badRequest, conflict, notFound } from '../utils/errors';
 import { AuthContext } from '../types';
 import { AuditRequestContext, recordAudit } from './audit.service';
@@ -37,16 +38,17 @@ export async function createRole(
   ctx: AuditRequestContext,
 ) {
   return prisma.$transaction(async (tx) => {
+    const permissionKeys = withAlwaysGranted(input.permissionKeys);
     const permissions = await tx.permission.findMany({
-      where: { key: { in: input.permissionKeys } },
+      where: { key: { in: permissionKeys } },
       select: { id: true, key: true },
     });
-    if (permissions.length !== input.permissionKeys.length) {
+    if (permissions.length !== permissionKeys.length) {
       const found = new Set(permissions.map((p) => p.key));
       throw badRequest('Unknown permission key', [
         {
           field: 'permissionKeys',
-          message: input.permissionKeys.filter((k) => !found.has(k)).join(', '),
+          message: permissionKeys.filter((k) => !found.has(k)).join(', '),
         },
       ]);
     }
@@ -69,7 +71,7 @@ export async function createRole(
       entityType: 'Role',
       entityId: role.id,
       summary: `Role ${role.name} created with ${permissions.length} permission(s)`,
-      newData: { name: role.name, permissions: input.permissionKeys },
+      newData: { name: role.name, permissions: permissionKeys },
     });
 
     return role;
@@ -92,20 +94,25 @@ export async function setRolePermissions(
       include: { rolePermissions: { include: { permission: { select: { key: true } } } } },
     });
     if (!role) throw notFound('Role');
+
+    let nextKeys = withAlwaysGranted(permissionKeys);
     if (role.type === RoleType.SYSTEM && role.name === 'ADMIN') {
-      throw conflict('The ADMIN role always holds every permission and cannot be narrowed');
+      const current = role.rolePermissions.map((rp) => rp.permission.key);
+      const keep = current.filter((key) => !key.startsWith('DASHBOARD_') || key === 'DASHBOARD_VIEW');
+      const dashboardNext = nextKeys.filter((key) => key.startsWith('DASHBOARD_'));
+      nextKeys = withAlwaysGranted([...keep, ...dashboardNext, 'DASHBOARD_VIEW']);
     }
 
     const permissions = await tx.permission.findMany({
-      where: { key: { in: permissionKeys } },
+      where: { key: { in: nextKeys } },
       select: { id: true, key: true },
     });
-    if (permissions.length !== permissionKeys.length) {
+    if (permissions.length !== nextKeys.length) {
       throw badRequest('One or more permission keys are unknown');
     }
 
     const before = role.rolePermissions.map((rp) => rp.permission.key).sort();
-    const after = [...permissionKeys].sort();
+    const after = [...nextKeys].sort();
     const added = after.filter((k) => !before.includes(k));
     const removed = before.filter((k) => !after.includes(k));
 
