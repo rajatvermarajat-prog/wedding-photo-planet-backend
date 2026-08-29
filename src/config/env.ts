@@ -2,7 +2,17 @@ import path from 'path';
 import dotenv from 'dotenv';
 import { z } from 'zod';
 
-dotenv.config({ path: path.resolve(process.cwd(), '.env') });
+dotenv.config({ path: path.resolve(process.cwd(), '.env'), quiet: true });
+
+/** Vercel/dashboard often stores unused keys as "". Zod defaults only apply to undefined. */
+function withoutBlanks(input: NodeJS.ProcessEnv): Record<string, string | undefined> {
+  return Object.fromEntries(
+    Object.entries(input).map(([key, value]) => [
+      key,
+      typeof value === 'string' && value.trim() === '' ? undefined : value,
+    ]),
+  );
+}
 
 const bool = (defaultValue: 'true' | 'false') =>
   z
@@ -33,7 +43,7 @@ const schema = z.object({
     .string()
     .min(32, 'REFRESH_TOKEN_SECRET must be at least 32 characters'),
   REFRESH_TOKEN_EXPIRES_IN: z.string().default('7d'),
-  COOKIE_SECURE: bool('false'),
+  COOKIE_SECURE: bool(process.env.NODE_ENV === 'production' ? 'true' : 'false'),
   COOKIE_DOMAIN: z.string().optional(),
 
   CORS_ORIGIN: z.string().default('http://localhost:3000'),
@@ -64,7 +74,7 @@ const schema = z.object({
   SEED_DEMO_DATA: bool('false'),
 });
 
-const parsed = schema.safeParse(process.env);
+const parsed = schema.safeParse(withoutBlanks(process.env));
 
 if (!parsed.success) {
   const details = parsed.error.issues
