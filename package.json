@@ -23,7 +23,8 @@
     "prisma:deploy": "prisma migrate deploy",
     "prisma:studio": "prisma studio",
     "seed": "tsx prisma/seed.ts",
-    "db:setup": "prisma migrate deploy && prisma generate && npm run seed"
+    "db:setup": "prisma migrate deploy && prisma generate && npm run seed",
+    "postinstall": "prisma generate"
   },
   "dependencies": {
     "@prisma/client": "^6.4.1",
@@ -37,6 +38,7 @@
     "jsonwebtoken": "^9.0.2",
     "pino": "^9.5.0",
     "pino-http": "^10.3.0",
+    "prisma": "^6.4.1",
     "swagger-ui-express": "^5.0.1",
     "zod": "^3.24.2"
   },
@@ -51,7 +53,6 @@
     "@types/supertest": "^6.0.2",
     "@types/swagger-ui-express": "^4.1.7",
     "eslint": "^9.17.0",
-    "prisma": "^6.4.1",
     "supertest": "^7.0.0",
     "tsx": "^4.21.0",
     "typescript": "^5.8.2",

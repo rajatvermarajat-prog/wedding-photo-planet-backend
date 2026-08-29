@@ -50,12 +50,7 @@ async function main(): Promise<void> {
   });
 }
 
-const app = createApp();
-export default app;
-
-if (!process.env.VERCEL) {
-  void main().catch((error) => {
-    logger.fatal({ err: error }, 'failed to start server');
-    process.exit(1);
-  });
-}
+void main().catch((error) => {
+  logger.fatal({ err: error }, 'failed to start server');
+  process.exit(1);
+});
