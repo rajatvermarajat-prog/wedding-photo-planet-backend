@@ -456,6 +456,7 @@ model Organization {
   attendances      Attendance[]
   leaveRequests    LeaveRequest[]
   personalTodos    PersonalTodo[]
+  personalNotes    PersonalNote[]
   files            FileObject[]
   notifications    Notification[]
   auditLogs        AuditLog[]
@@ -566,6 +567,7 @@ model User {
   attendances       Attendance[]   @relation("AttendanceUser")
   attendancesMarked Attendance[]   @relation("AttendanceMarkedBy")
   personalTodos     PersonalTodo[]
+  personalNotes     PersonalNote[]
   leaveRequests     LeaveRequest[] @relation("LeaveRequestUser")
   leaveReviews      LeaveRequest[] @relation("LeaveRequestReviewer")
 
@@ -1311,6 +1313,7 @@ model PersonalTodo {
   organizationId String       @map("organization_id") @db.Uuid
   userId         String       @map("user_id") @db.Uuid
   title          String       @db.VarChar(200)
+  category       String?      @db.VarChar(80)
   priority       TaskPriority @default(MEDIUM)
   dueDate        DateTime?    @map("due_date") @db.Date
   completed      Boolean      @default(false)
@@ -1325,6 +1328,27 @@ model PersonalTodo {
   @@index([userId, completed])
   @@index([organizationId, userId])
   @@map("personal_todos")
+}
+
+/// Private notepad that belongs only to the signed-in employee.
+model PersonalNote {
+  id             String    @id @default(uuid()) @db.Uuid
+  organizationId String    @map("organization_id") @db.Uuid
+  userId         String    @map("user_id") @db.Uuid
+  title          String    @db.VarChar(200)
+  content        String    @db.Text
+  pinned         Boolean   @default(false)
+  sortOrder      Int       @default(0) @map("sort_order")
+  createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+  deletedAt      DateTime? @map("deleted_at") @db.Timestamptz(6)
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, sortOrder])
+  @@index([organizationId, userId])
+  @@map("personal_notes")
 }
 
 /// Full reassignment trail — every change of task ownership is auditable.

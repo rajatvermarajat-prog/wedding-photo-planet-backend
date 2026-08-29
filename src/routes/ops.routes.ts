@@ -18,6 +18,9 @@ import {
   personalTodoListQuery,
   createPersonalTodoSchema,
   updatePersonalTodoSchema,
+  createPersonalNoteSchema,
+  updatePersonalNoteSchema,
+  reorderPersonalNotesSchema,
   reassignTaskSchema,
   requestLeaveSchema,
   reviewLeaveSchema,
@@ -197,30 +200,49 @@ export const personalTodoRouter = Router();
 
 personalTodoRouter.get(
   '/',
-  requirePermission('PERSONAL_TODO'),
   validate({ query: personalTodoListQuery }),
   controller.listPersonalTodos,
 );
 personalTodoRouter.post(
   '/',
-  requirePermission('PERSONAL_TODO'),
   validate({ body: createPersonalTodoSchema }),
   controller.createPersonalTodo,
 );
 personalTodoRouter.delete(
   '/completed',
-  requirePermission('PERSONAL_TODO'),
   controller.clearCompletedPersonalTodos,
 );
 personalTodoRouter.patch(
   '/:id',
-  requirePermission('PERSONAL_TODO'),
   validate({ params: idParam, body: updatePersonalTodoSchema }),
   controller.updatePersonalTodo,
 );
 personalTodoRouter.delete(
   '/:id',
-  requirePermission('PERSONAL_TODO'),
   validate({ params: idParam }),
   controller.removePersonalTodo,
+);
+
+export const personalNoteRouter = Router();
+
+personalNoteRouter.get('/', controller.listPersonalNotes);
+personalNoteRouter.post(
+  '/',
+  validate({ body: createPersonalNoteSchema }),
+  controller.createPersonalNote,
+);
+personalNoteRouter.put(
+  '/reorder',
+  validate({ body: reorderPersonalNotesSchema }),
+  controller.reorderPersonalNotes,
+);
+personalNoteRouter.patch(
+  '/:id',
+  validate({ params: idParam, body: updatePersonalNoteSchema }),
+  controller.updatePersonalNote,
+);
+personalNoteRouter.delete(
+  '/:id',
+  validate({ params: idParam }),
+  controller.removePersonalNote,
 );

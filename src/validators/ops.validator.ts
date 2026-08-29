@@ -92,6 +92,7 @@ export const createPersonalTodoSchema = z.object({
   title: z.string().trim().min(1).max(200),
   priority: PERSONAL_TODO_PRIORITY.optional(),
   dueDate: toDate.optional(),
+  category: z.string().trim().max(80).optional(),
 });
 
 export const updatePersonalTodoSchema = z.object({
@@ -99,6 +100,23 @@ export const updatePersonalTodoSchema = z.object({
   priority: PERSONAL_TODO_PRIORITY.optional(),
   dueDate: toDate.optional().nullable(),
   completed: z.boolean().optional(),
+  category: z.string().trim().max(80).optional().nullable(),
+});
+
+export const createPersonalNoteSchema = z.object({
+  title: z.string().trim().max(200).optional(),
+  content: z.string().max(20000).optional(),
+});
+
+export const updatePersonalNoteSchema = z.object({
+  title: z.string().trim().min(1).max(200).optional(),
+  content: z.string().max(20000).optional(),
+  pinned: z.boolean().optional(),
+  sortOrder: z.number().int().min(0).optional(),
+});
+
+export const reorderPersonalNotesSchema = z.object({
+  ids: z.array(uuid).min(1).max(100),
 });
 
 // --- Deliveries -----------------------------------------------------------

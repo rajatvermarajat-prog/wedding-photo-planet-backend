@@ -226,7 +226,7 @@ const MEMBER_ALLOWED = new Set([
 ]);
 
 /** Every role keeps these keys — they cannot be revoked from the Roles UI. */
-export const ALWAYS_GRANTED_KEYS = ['NOTIFICATION_VIEW'] as const;
+export const ALWAYS_GRANTED_KEYS = ['NOTIFICATION_VIEW', 'PERSONAL_TODO'] as const;
 
 export function withAlwaysGranted(keys: string[]): string[] {
   return [...new Set([...keys, ...ALWAYS_GRANTED_KEYS])];

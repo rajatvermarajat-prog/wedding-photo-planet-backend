@@ -5,6 +5,7 @@ import * as deliveryService from '../services/delivery.service';
 import * as freelancerService from '../services/freelancer.service';
 import * as attendanceService from '../services/attendance.service';
 import * as personalTodoService from '../services/personalTodo.service';
+import * as personalNoteService from '../services/personalNote.service';
 
 // --- Tasks ----------------------------------------------------------------
 
@@ -247,4 +248,30 @@ export const clearCompletedPersonalTodos = asyncHandler(async (req, res) => {
   const auth = requireAuthContext(req);
   const result = await personalTodoService.clearCompletedPersonalTodos(auth);
   return sendSuccess(res, { cleared: result.count });
+});
+
+export const listPersonalNotes = asyncHandler(async (req, res) => {
+  const auth = requireAuthContext(req);
+  return sendSuccess(res, await personalNoteService.listPersonalNotes(auth));
+});
+
+export const createPersonalNote = asyncHandler(async (req, res) => {
+  const auth = requireAuthContext(req);
+  return sendCreated(res, await personalNoteService.createPersonalNote(auth, req.body));
+});
+
+export const updatePersonalNote = asyncHandler(async (req, res) => {
+  const auth = requireAuthContext(req);
+  return sendSuccess(res, await personalNoteService.updatePersonalNote(auth, req.params.id, req.body));
+});
+
+export const reorderPersonalNotes = asyncHandler(async (req, res) => {
+  const auth = requireAuthContext(req);
+  return sendSuccess(res, await personalNoteService.reorderPersonalNotes(auth, req.body.ids));
+});
+
+export const removePersonalNote = asyncHandler(async (req, res) => {
+  const auth = requireAuthContext(req);
+  await personalNoteService.deletePersonalNote(auth, req.params.id);
+  return sendNoContent(res);
 });

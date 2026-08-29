@@ -16,11 +16,12 @@ function createPrisma(): PrismaClient {
 }
 
 const cached = globalForPrisma.prisma;
-if (cached && !(cached as { personalTodo?: unknown }).personalTodo) {
-  void cached.$disconnect();
+const stale = Boolean(cached && !(cached as { personalNote?: unknown }).personalNote);
+if (stale) {
+  void cached?.$disconnect();
+  globalForPrisma.prisma = undefined;
 }
-export const prisma =
-  cached && (cached as { personalTodo?: unknown }).personalTodo ? cached : createPrisma();
+export const prisma = stale || !cached ? createPrisma() : cached;
 
 if (!env.isProduction) {
   globalForPrisma.prisma = prisma;

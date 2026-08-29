@@ -15,6 +15,7 @@ export interface CreatePersonalTodoInput {
   title: string;
   priority?: TaskPriority;
   dueDate?: Date;
+  category?: string;
 }
 
 export interface UpdatePersonalTodoInput {
@@ -22,6 +23,7 @@ export interface UpdatePersonalTodoInput {
   priority?: TaskPriority;
   dueDate?: Date | null;
   completed?: boolean;
+  category?: string | null;
 }
 
 function ownWhere(auth: AuthContext) {
@@ -45,6 +47,7 @@ export function createPersonalTodo(auth: AuthContext, input: CreatePersonalTodoI
       title: input.title,
       priority: input.priority ?? 'MEDIUM',
       dueDate: input.dueDate,
+      category: input.category,
     },
   });
 }
@@ -66,6 +69,7 @@ export async function updatePersonalTodo(auth: AuthContext, id: string, input: U
       dueDate: input.dueDate,
       completed: input.completed,
       completedAt,
+      category: input.category,
     },
   });
 }
