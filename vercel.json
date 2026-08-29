@@ -1,5 +1,5 @@
 {
-  "buildCommand": "prisma generate",
+  "buildCommand": "npx prisma generate",
   "functions": {
     "api/index.ts": {
       "includeFiles": "node_modules/.prisma/client/**"
