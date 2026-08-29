@@ -15,6 +15,17 @@ import { generalLimiter } from './middleware/rateLimiter';
 import { jsonReplacer } from './utils/serialize';
 import { openApiDocument } from './docs/openapi';
 
+let cachedApp: ReturnType<typeof createApp> | undefined;
+
+/**
+ * Vercel's Express detection treats `src/app.ts` as a function entrypoint and
+ * requires a default export that is a request handler.
+ */
+export default function handler(req: Request, res: Response) {
+  cachedApp ??= createApp();
+  return cachedApp(req, res);
+}
+
 export function createApp() {
   const app = express();
 
