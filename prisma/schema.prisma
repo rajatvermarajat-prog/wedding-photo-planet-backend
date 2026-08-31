@@ -538,6 +538,7 @@ model User {
   employeeProfile EmployeeProfile?
 
   userRoles          UserRole[]     @relation("UserRoleMember")
+  personalRoles      Role[]         @relation("PersonalRole")
   rolesAssignedByMe  UserRole[]     @relation("UserRoleAssignedBy")
   sessions           Session[]
   loginHistories     LoginHistory[]
@@ -607,13 +608,19 @@ model Role {
   deletedAt      DateTime? @map("deleted_at") @db.Timestamptz(6)
   deletedBy      String?   @map("deleted_by") @db.Uuid
 
+  /// Set when the role exists to give one specific employee their own permission
+  /// set. Such a role is never offered for anyone else to be assigned.
+  personalForUserId String? @map("personal_for_user_id") @db.Uuid
+
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  personalFor  User?        @relation("PersonalRole", fields: [personalForUserId], references: [id], onDelete: SetNull)
 
   rolePermissions RolePermission[]
   userRoles       UserRole[]
 
   @@unique([organizationId, name])
   @@index([organizationId, type])
+  @@index([personalForUserId])
   @@map("roles")
 }
 

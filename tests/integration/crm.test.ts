@@ -208,6 +208,29 @@ describe('CRM: clients, projects, events, shoots', () => {
     expect(second.status).toBe(409);
   });
 
+  it('scopes lead lists and direct detail access to the assigned employee', async () => {
+    const memberLead = await authed(token)
+      .post(`${base}/leads`)
+      .send({ name: 'Assigned Couple', phone: '+919900112234', ownerId: org.member.id })
+      .expect(201);
+    const otherLead = await authed(token)
+      .post(`${base}/leads`)
+      .send({ name: 'Another Couple', phone: '+919900112235', ownerId: org.manager.id })
+      .expect(201);
+
+    const memberToken = await login(org.member);
+    const memberList = await authed(memberToken).get(`${base}/leads?search=couple`).expect(200);
+    expect(memberList.body.data.map((lead: { id: string }) => lead.id)).toEqual([memberLead.body.data.id]);
+    expect(memberList.body.meta.pagination.total).toBe(1);
+
+    await authed(memberToken).get(`${base}/leads/${memberLead.body.data.id}`).expect(200);
+    // A guessed UUID reads as missing, without revealing another employee's lead.
+    await authed(memberToken).get(`${base}/leads/${otherLead.body.data.id}`).expect(404);
+
+    const adminList = await authed(token).get(`${base}/leads?search=couple`).expect(200);
+    expect(adminList.body.meta.pagination.total).toBe(2);
+  });
+
   it('rejects a malformed UUID before it reaches the database', async () => {
     const response = await authed(token).get(`${base}/clients/not-a-uuid`);
     expect(response.status).toBe(400);

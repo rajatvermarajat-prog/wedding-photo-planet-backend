@@ -61,6 +61,8 @@ export const createRoleSchema = z.object({
   name: z.string().trim().min(1).max(64),
   description: z.string().max(255).optional(),
   status: roleStatus.optional(),
+  /** Marks the role as one specific employee's own permission set. */
+  personalForUserId: z.string().uuid().optional(),
   permissionKeys: z.array(permissionKey).max(PERMISSION_KEYS.length).default([]),
 });
 

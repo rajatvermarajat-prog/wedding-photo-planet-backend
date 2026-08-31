@@ -51,13 +51,13 @@ export const addClientNote = asyncHandler(async (req, res) => {
 
 export const listLeads = asyncHandler(async (req, res) => {
   const auth = requireAuthContext(req);
-  const { items, pagination } = await leadService.listLeads(auth.organizationId, req.query);
+  const { items, pagination } = await leadService.listLeads(auth, req.query);
   return sendSuccess(res, items, { pagination });
 });
 
 export const getLead = asyncHandler(async (req, res) => {
   const auth = requireAuthContext(req);
-  return sendSuccess(res, await leadService.getLead(auth.organizationId, req.params.id));
+  return sendSuccess(res, await leadService.getLead(auth, req.params.id));
 });
 
 export const createLead = asyncHandler(async (req, res) => {

@@ -116,6 +116,7 @@ async function assertAssignableRoles(
   db: RoleReader,
   auth: AuthContext,
   roleIds: string[],
+  targetUserId?: string,
 ): Promise<Array<{ id: string; name: string }>> {
   const roles = await db.findMany({
     where: { id: { in: roleIds }, organizationId: auth.organizationId, deletedAt: null },
@@ -123,10 +124,23 @@ async function assertAssignableRoles(
       id: true,
       name: true,
       status: true,
+      personalForUserId: true,
       rolePermissions: { select: { permission: { select: { key: true } } } },
     },
   });
   if (roles.length !== roleIds.length) throw badRequest('One or more roles are invalid');
+
+  // A personal role holds one employee's own permission set; handing it to a
+  // colleague would silently change access for both of them.
+  const foreign = roles.filter(
+    (role) => role.personalForUserId && role.personalForUserId !== targetUserId,
+  );
+  if (foreign.length > 0) {
+    throw conflict(
+      `Role(s) ${foreign.map((r) => `"${r.name}"`).join(', ')} belong to one specific ` +
+        'employee and cannot be assigned to anyone else',
+    );
+  }
 
   const inactive = roles.filter((role) => role.status !== RoleStatus.ACTIVE);
   if (inactive.length > 0) {
@@ -253,7 +267,7 @@ export async function setUserRoles(
   return prisma.$transaction(async (tx) => {
     await findScoped(tx.user, auth.organizationId, id, 'User', { select: { id: true } });
 
-    const roles = await assertAssignableRoles(tx.role, auth, roleIds);
+    const roles = await assertAssignableRoles(tx.role, auth, roleIds, id);
 
     const before = await tx.userRole.findMany({
       where: { userId: id },

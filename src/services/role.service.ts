@@ -139,12 +139,32 @@ export async function getRole(organizationId: string, id: string, db: RoleReader
 
 export async function createRole(
   auth: AuthContext,
-  input: { name: string; description?: string; permissionKeys: string[]; status?: RoleStatus },
+  input: {
+    name: string;
+    description?: string;
+    permissionKeys: string[];
+    status?: RoleStatus;
+    personalForUserId?: string;
+  },
   ctx: AuditRequestContext,
 ) {
   return prisma.$transaction(async (tx) => {
     const permissionKeys = withAlwaysGranted(input.permissionKeys);
     assertCanGrant(auth, permissionKeys);
+
+    if (input.personalForUserId) {
+      // A personal role must belong to an employee of this studio, otherwise it
+      // could be pinned to an account in another organization.
+      const owner = await tx.user.findFirst({
+        where: {
+          id: input.personalForUserId,
+          organizationId: auth.organizationId,
+          deletedAt: null,
+        },
+        select: { id: true },
+      });
+      if (!owner) throw badRequest('The employee for this personal role was not found');
+    }
 
     // The unique constraint spans soft-deleted rows, so a name that was used by
     // a deleted role is reported clearly instead of surfacing a raw conflict.
@@ -169,6 +189,7 @@ export async function createRole(
             description: input.description,
             type: RoleType.CUSTOM,
             status: input.status ?? RoleStatus.ACTIVE,
+            personalForUserId: input.personalForUserId ?? null,
             deletedAt: null,
             deletedBy: null,
             rolePermissions: { deleteMany: {}, createMany: { data: permissionRows } },
@@ -185,6 +206,7 @@ export async function createRole(
             description: input.description,
             type: RoleType.CUSTOM,
             status: input.status ?? RoleStatus.ACTIVE,
+            personalForUserId: input.personalForUserId ?? null,
             rolePermissions: { createMany: { data: permissionRows } },
           },
           include: {

@@ -1,4 +1,6 @@
 import { prisma } from '../config/prisma';
+import { AuthContext } from '../types';
+import { canAccessAllLeads } from './lead.service';
 import { dateRangeFilter } from '../utils/date';
 import { money, round2 } from '../utils/money';
 
@@ -51,18 +53,23 @@ export async function getMonthlyFinancials(
   }));
 }
 
-export async function getLeadFunnel(organizationId: string, query: { from?: string; to?: string }) {
+export async function getLeadFunnel(auth: AuthContext, query: { from?: string; to?: string }) {
   const createdAt = dateRangeFilter(query.from, query.to);
+  const leadScope = {
+    organizationId: auth.organizationId,
+    deletedAt: null,
+    ...(canAccessAllLeads(auth) ? {} : { ownerId: auth.userId }),
+  };
   const [byStatus, bySource] = await Promise.all([
     prisma.lead.groupBy({
       by: ['status'],
-      where: { organizationId, deletedAt: null, ...(createdAt ? { createdAt } : {}) },
+      where: { ...leadScope, ...(createdAt ? { createdAt } : {}) },
       _count: { _all: true },
       _sum: { estimatedValue: true },
     }),
     prisma.lead.groupBy({
       by: ['sourceId'],
-      where: { organizationId, deletedAt: null, ...(createdAt ? { createdAt } : {}) },
+      where: { ...leadScope, ...(createdAt ? { createdAt } : {}) },
       _count: { _all: true },
     }),
   ]);
