@@ -1,8 +1,8 @@
 import { LeadStatus, Prisma } from '@prisma/client';
 import { prisma } from '../config/prisma';
-import { andWhere, findScoped, paginate, searchFilter } from '../repositories/base.repository';
+import { andWhere, paginate, searchFilter } from '../repositories/base.repository';
 import { resolveSort } from '../utils/pagination';
-import { badRequest, conflict, notFound } from '../utils/errors';
+import { badRequest, conflict, forbidden, notFound } from '../utils/errors';
 import { dateRangeFilter } from '../utils/date';
 import { nextDocumentNumber } from '../utils/documentNumber';
 import { AuthContext } from '../types';
@@ -23,12 +23,49 @@ export interface LeadListQuery {
   sortOrder?: string;
 }
 
-export function listLeads(organizationId: string, query: LeadListQuery) {
+/** Only the ADMIN system role can read across the studio lead book. */
+export function canAccessAllLeads(auth: AuthContext): boolean {
+  // Existing studios may have the seeded `ADMIN` role or the display-case
+  // `Admin` role. Both represent the administrator access level.
+  return auth.roles.some((role) => role.trim().toUpperCase() === 'ADMIN');
+}
+
+/** Applied to every lead read and write, never merely after a row is loaded. */
+function leadAccessWhere(auth: AuthContext): Prisma.LeadWhereInput {
+  return {
+    organizationId: auth.organizationId,
+    deletedAt: null,
+    ...(canAccessAllLeads(auth) ? {} : { ownerId: auth.userId }),
+  };
+}
+
+async function getAccessibleLead<T>(
+  db: Pick<typeof prisma.lead, 'findFirst'>,
+  auth: AuthContext,
+  id: string,
+  include?: Prisma.LeadInclude,
+): Promise<T> {
+  const lead = await db.findFirst({ where: { ...leadAccessWhere(auth), id }, ...(include ? { include } : {}) });
+  if (!lead) throw notFound('Lead');
+  return lead as T;
+}
+
+async function assertLeadOwnerInOrganization(
+  db: Pick<typeof prisma.user, 'findFirst'>,
+  organizationId: string,
+  ownerId: string | undefined,
+): Promise<void> {
+  if (!ownerId) return;
+  const owner = await db.findFirst({ where: { id: ownerId, organizationId, deletedAt: null }, select: { id: true } });
+  if (!owner) throw badRequest('Lead owner must be an active employee of this studio');
+}
+
+export function listLeads(auth: AuthContext, query: LeadListQuery) {
   const sort = resolveSort(query.sortBy, query.sortOrder, SORTABLE, 'createdAt');
   const created = dateRangeFilter(query.from, query.to);
   return paginate(prisma.lead, {
     where: andWhere(
-      { organizationId, deletedAt: null },
+      leadAccessWhere(auth),
       query.status ? { status: query.status } : undefined,
       query.ownerId ? { ownerId: query.ownerId } : undefined,
       query.sourceId ? { sourceId: query.sourceId } : undefined,
@@ -45,14 +82,12 @@ export function listLeads(organizationId: string, query: LeadListQuery) {
   });
 }
 
-export function getLead(organizationId: string, id: string) {
-  return findScoped(prisma.lead, organizationId, id, 'Lead', {
-    include: {
-      source: true,
-      owner: { select: { id: true, fullName: true, email: true } },
-      followUps: { orderBy: { scheduledAt: 'desc' } },
-      client: { select: { id: true, clientCode: true, displayName: true } },
-    },
+export function getLead(auth: AuthContext, id: string) {
+  return getAccessibleLead(prisma.lead, auth, id, {
+    source: true,
+    owner: { select: { id: true, fullName: true, email: true } },
+    followUps: { orderBy: { scheduledAt: 'desc' } },
+    client: { select: { id: true, clientCode: true, displayName: true } },
   });
 }
 
@@ -71,7 +106,11 @@ export interface CreateLeadInput {
 }
 
 export async function createLead(auth: AuthContext, input: CreateLeadInput, ctx: AuditRequestContext) {
+  if (!canAccessAllLeads(auth) && input.ownerId && input.ownerId !== auth.userId) {
+    throw forbidden('Employees can create leads only for themselves');
+  }
   return prisma.$transaction(async (tx) => {
+    if (canAccessAllLeads(auth)) await assertLeadOwnerInOrganization(tx.user, auth.organizationId, input.ownerId);
     const lead = await tx.lead.create({
       data: {
         organizationId: auth.organizationId,
@@ -83,7 +122,9 @@ export async function createLead(auth: AuthContext, input: CreateLeadInput, ctx:
         eventDate: input.eventDate,
         venueCity: input.venueCity,
         estimatedValue: input.estimatedValue ?? 0,
-        ownerId: input.ownerId,
+        // New employee leads must be assigned immediately; unassigned rows
+        // cannot leak into another employee's view later.
+        ownerId: canAccessAllLeads(auth) ? input.ownerId : auth.userId,
         nextFollowUpAt: input.nextFollowUpAt,
         notes: input.notes,
         createdById: auth.userId,
@@ -107,12 +148,12 @@ export async function updateLead(
   ctx: AuditRequestContext,
 ) {
   return prisma.$transaction(async (tx) => {
-    const existing = await findScoped<{ id: string; status: LeadStatus }>(
-      tx.lead,
-      auth.organizationId,
-      id,
-      'Lead',
-    );
+    const existing = await getAccessibleLead<{ id: string; status: LeadStatus }>(tx.lead, auth, id);
+
+    if (!canAccessAllLeads(auth) && input.ownerId !== undefined && input.ownerId !== auth.userId) {
+      throw forbidden('Employees cannot reassign leads');
+    }
+    if (canAccessAllLeads(auth)) await assertLeadOwnerInOrganization(tx.user, auth.organizationId, input.ownerId);
 
     if (input.status === 'LOST' && !input.lostReason) {
       throw badRequest('A lostReason is required when marking a lead as LOST');
@@ -129,7 +170,7 @@ export async function updateLead(
         eventDate: input.eventDate,
         venueCity: input.venueCity,
         estimatedValue: input.estimatedValue,
-        ownerId: input.ownerId,
+        ownerId: canAccessAllLeads(auth) ? input.ownerId : undefined,
         nextFollowUpAt: input.nextFollowUpAt,
         notes: input.notes,
         status: input.status,
@@ -165,7 +206,7 @@ export async function addFollowUp(
   ctx: AuditRequestContext,
 ) {
   return prisma.$transaction(async (tx) => {
-    await findScoped(tx.lead, auth.organizationId, leadId, 'Lead');
+    await getAccessibleLead(tx.lead, auth, leadId);
 
     const followUp = await tx.leadFollowUp.create({
       data: {
@@ -207,14 +248,14 @@ export async function convertLead(
   ctx: AuditRequestContext,
 ) {
   return prisma.$transaction(async (tx) => {
-    const lead = await findScoped<{
+    const lead = await getAccessibleLead<{
       id: string;
       name: string;
       phone: string;
       email: string | null;
       status: LeadStatus;
       clientId: string | null;
-    }>(tx.lead, auth.organizationId, leadId, 'Lead');
+    }>(tx.lead, auth, leadId);
 
     if (lead.clientId) throw conflict('This lead has already been converted');
 
@@ -261,7 +302,7 @@ export async function convertLead(
 
 export async function deleteLead(auth: AuthContext, id: string, ctx: AuditRequestContext) {
   return prisma.$transaction(async (tx) => {
-    const lead = await findScoped<{ id: string }>(tx.lead, auth.organizationId, id, 'Lead');
+    const lead = await getAccessibleLead<{ id: string }>(tx.lead, auth, id);
     await tx.lead.update({
       where: { id },
       data: { deletedAt: new Date(), deletedBy: auth.userId },

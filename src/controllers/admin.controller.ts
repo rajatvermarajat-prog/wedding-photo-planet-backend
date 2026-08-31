@@ -229,7 +229,7 @@ export const monthlyFinancials = asyncHandler(async (req, res) => {
 
 export const leadFunnel = asyncHandler(async (req, res) => {
   const auth = requireAuthContext(req);
-  return sendSuccess(res, await reportService.getLeadFunnel(auth.organizationId, req.query));
+  return sendSuccess(res, await reportService.getLeadFunnel(auth, req.query));
 });
 
 export const teamWorkload = asyncHandler(async (req, res) => {

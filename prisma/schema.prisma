@@ -538,6 +538,7 @@ model User {
   employeeProfile EmployeeProfile?
 
   userRoles          UserRole[]     @relation("UserRoleMember")
+  personalRoles      Role[]         @relation("PersonalRole")
   rolesAssignedByMe  UserRole[]     @relation("UserRoleAssignedBy")
   sessions           Session[]
   loginHistories     LoginHistory[]
@@ -607,13 +608,19 @@ model Role {
   deletedAt      DateTime? @map("deleted_at") @db.Timestamptz(6)
   deletedBy      String?   @map("deleted_by") @db.Uuid
 
+  /// Set when the role exists to give one specific employee their own permission
+  /// set. Such a role is never offered for anyone else to be assigned.
+  personalForUserId String? @map("personal_for_user_id") @db.Uuid
+
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  personalFor  User?        @relation("PersonalRole", fields: [personalForUserId], references: [id], onDelete: SetNull)
 
   rolePermissions RolePermission[]
   userRoles       UserRole[]
 
   @@unique([organizationId, name])
   @@index([organizationId, type])
+  @@index([personalForUserId])
   @@map("roles")
 }
 
@@ -775,7 +782,7 @@ model EmployeeProfile {
 // ===========================================================================
 
 model LeadSource {
-  id             String   @id @default(uuid()) @db.Uuid
+  id             String   @id @db.VarChar(64)
   organizationId String   @map("organization_id") @db.Uuid
   name           String   @db.VarChar(80)
   description    String?  @db.VarChar(255)
@@ -985,6 +992,8 @@ model Project {
   venueAddress    String?       @map("venue_address") @db.VarChar(255)
   venueCity       String?       @map("venue_city") @db.VarChar(80)
   totalQuotation  Decimal       @default(0) @map("total_quotation") @db.Decimal(14, 2)
+  customServiceType String?     @map("custom_service_type") @db.VarChar(160)
+  otherClientDetails String?    @map("other_client_details") @db.Text
   notes           String?       @db.Text
   createdById     String?       @map("created_by_id") @db.Uuid
   managerId       String?       @map("manager_id") @db.Uuid
@@ -1014,6 +1023,7 @@ model Project {
   files          FileObject[]
   communications ClientCommunication[]
   attendances    Attendance[]
+  paymentMilestones PaymentMilestone[]
 
   @@unique([organizationId, projectNumber])
   @@index([organizationId, status])
@@ -1023,6 +1033,24 @@ model Project {
   @@index([managerId])
   @@index([createdAt])
   @@map("projects")
+}
+
+model PaymentMilestone {
+  id             String   @id @default(uuid()) @db.Uuid
+  organizationId String   @map("organization_id") @db.Uuid
+  projectId      String   @map("project_id") @db.Uuid
+  title          String   @db.VarChar(160)
+  dueDate        DateTime? @map("due_date") @db.Date
+  amount         Decimal  @default(0) @db.Decimal(14, 2)
+  status         String   @default("PENDING") @db.VarChar(20)
+  notes          String?  @db.Text
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, projectId])
+  @@map("payment_milestones")
 }
 
 model ProjectStatusHistory {

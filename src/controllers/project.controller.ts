@@ -50,6 +50,17 @@ export const remove = asyncHandler(async (req, res) => {
   return sendNoContent(res);
 });
 
+export const removePaymentMilestone = asyncHandler(async (req, res) => {
+  const auth = requireAuthContext(req);
+  await projectService.deletePaymentMilestone(auth, req.params.id, req.params.milestoneId, req.body?.milestones, auditContext(req));
+  return sendNoContent(res);
+});
+
+export const listPaymentMilestones = asyncHandler(async (req, res) => {
+  const auth = requireAuthContext(req);
+  return sendSuccess(res, await projectService.listPaymentMilestones(auth.organizationId, req.params.id));
+});
+
 export const statusHistory = asyncHandler(async (req, res) => {
   const auth = requireAuthContext(req);
   return sendSuccess(

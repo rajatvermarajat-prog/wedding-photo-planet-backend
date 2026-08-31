@@ -60,6 +60,8 @@ export const createProjectSchema = z.object({
   venueAddress: z.string().max(255).optional(),
   venueCity: z.string().max(80).optional(),
   totalQuotation: nonNegativeDecimal.optional(),
+  customServiceType: z.string().trim().min(1).max(160).optional(),
+  otherClientDetails: z.string().trim().max(5000).optional(),
   notes: z.string().max(5000).optional(),
   managerId: uuid.optional(),
   events: z.array(embeddedEventSchema).max(30).optional(),
@@ -225,3 +227,4 @@ export const updateAssignmentSchema = z.object({
 });
 
 export const assignmentParams = z.object({ id: uuid, assignmentId: uuid });
+export const paymentMilestoneParams = z.object({ id: uuid, milestoneId: z.string().trim().min(1).max(64) });

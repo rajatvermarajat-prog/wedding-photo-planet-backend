@@ -199,6 +199,38 @@ describe('role management', () => {
     expect(managerRole.body.data.rolePermissions.length).toBeGreaterThan(50);
   });
 
+  it('keeps a personal role tied to its own employee', async () => {
+    const personal = await createRole(adminToken, {
+      name: 'Member User — MEMBER',
+      permissionKeys: ['DASHBOARD_VIEW'],
+      personalForUserId: org.member.id,
+    }).expect(201);
+    expect(personal.body.data.personalForUserId).toBe(org.member.id);
+
+    // Its own employee may hold it...
+    await authed(adminToken)
+      .put(`${base}/users/${org.member.id}/roles`)
+      .send({ roleIds: [personal.body.data.id] })
+      .expect(200);
+
+    // ...but a colleague may not, even for an admin.
+    const stolen = await authed(adminToken)
+      .put(`${base}/users/${org.manager.id}/roles`)
+      .send({ roleIds: [personal.body.data.id] });
+    expect(stolen.status).toBe(409);
+    expect(stolen.body.error.message).toContain('one specific employee');
+  });
+
+  it('rejects a personal role pinned to another organization’s employee', async () => {
+    const otherOrg = await seedTestOrganization('outsider-studio');
+    const response = await createRole(adminToken, {
+      name: 'Smuggled personal role',
+      permissionKeys: ['DASHBOARD_VIEW'],
+      personalForUserId: otherOrg.member.id,
+    });
+    expect(response.status).toBe(400);
+  });
+
   it('audits role creation and permission changes', async () => {
     const created = await createRole(adminToken, salesManager).expect(201);
     await authed(adminToken)

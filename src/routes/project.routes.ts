@@ -6,6 +6,7 @@ import { idParam } from '../validators/common.validator';
 import {
   assignCrewSchema,
   assignmentParams,
+  paymentMilestoneParams,
   createEventSchema,
   createProjectSchema,
   createShootSchema,
@@ -63,6 +64,18 @@ projectRouter.delete(
   requirePermission('PROJECT_DELETE'),
   validate({ params: idParam }),
   controller.remove,
+);
+projectRouter.get(
+  '/:id/payment-milestones',
+  requirePermission('PROJECT_VIEW'),
+  validate({ params: idParam }),
+  controller.listPaymentMilestones,
+);
+projectRouter.delete(
+  '/:id/payment-milestones/:milestoneId',
+  requirePermission('PROJECT_UPDATE'),
+  validate({ params: paymentMilestoneParams }),
+  controller.removePaymentMilestone,
 );
 
 export const eventRouter = Router();
