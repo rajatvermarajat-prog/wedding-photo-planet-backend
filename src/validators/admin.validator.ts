@@ -55,16 +55,22 @@ export const resetPasswordSchema = z.object({ newPassword: password });
 
 // --- Roles ----------------------------------------------------------------
 
+const roleStatus = z.enum(['ACTIVE', 'INACTIVE']);
+
 export const createRoleSchema = z.object({
   name: z.string().trim().min(1).max(64),
   description: z.string().max(255).optional(),
+  status: roleStatus.optional(),
   permissionKeys: z.array(permissionKey).max(PERMISSION_KEYS.length).default([]),
 });
 
-export const updateRoleSchema = z.object({
-  name: z.string().trim().min(1).max(64).optional(),
-  description: z.string().max(255).optional(),
-});
+export const updateRoleSchema = z
+  .object({
+    name: z.string().trim().min(1).max(64).optional(),
+    description: z.string().max(255).optional(),
+    status: roleStatus.optional(),
+  })
+  .refine((body) => Object.keys(body).length > 0, { message: 'Nothing to update' });
 
 export const setPermissionsSchema = z.object({
   permissionKeys: z.array(permissionKey).max(PERMISSION_KEYS.length),

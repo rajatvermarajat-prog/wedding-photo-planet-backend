@@ -1013,7 +1013,8 @@ export const openApiDocument = {
       put: {
         tags: ['Users'],
         summary: 'Replace a user’s roles',
-        description: 'Requires `USER_MANAGE`. The before/after set is captured in the audit log.',
+        description:
+          'Requires `USER_MANAGE`. The role must belong to the same organization, be ACTIVE, and grant nothing the caller lacks — otherwise 403/409. The before/after set is captured in the audit log.',
         parameters: [PARAMS.id],
         responses: { 200: okResponse('Updated user'), ...COMMON_ERRORS },
       },
@@ -1029,11 +1030,29 @@ export const openApiDocument = {
     },
 
     [`${base}/roles`]: {
-      get: { tags: ['Roles'], summary: 'List roles with their permissions', responses: { 200: okResponse('Roles') } },
+      get: {
+        tags: ['Roles'],
+        summary: 'List roles with their permissions',
+        description:
+          'Scoped to the caller’s organization. Each row carries `type` (SYSTEM/CUSTOM), `status` (ACTIVE/INACTIVE), a user count, and `assignable` — true only when the caller holds every permission the role grants. Requires `ROLE_VIEW`.',
+        responses: { 200: okResponse('Roles') },
+      },
       post: {
         tags: ['Roles'],
         summary: 'Create a custom role',
+        description:
+          'Always created as CUSTOM. A permission the caller does not hold cannot be granted (403). A duplicate name within the organization returns 409. Requires `ROLE_CREATE`.',
         responses: { 201: okResponse('Created role'), ...COMMON_ERRORS },
+      },
+    },
+    [`${base}/roles/{id}/users`]: {
+      get: {
+        tags: ['Roles'],
+        summary: 'List the employees holding a role',
+        description:
+          'Organization-scoped; a role from another studio reads as 404. Each row includes the employee’s full role set so a split into separate roles is easy to plan. Requires `ROLE_VIEW` or `TEAM_VIEW`.',
+        parameters: [PARAMS.id],
+        responses: { 200: okResponse('Role members'), ...COMMON_ERRORS },
       },
     },
     [`${base}/roles/{id}/permissions`]: {

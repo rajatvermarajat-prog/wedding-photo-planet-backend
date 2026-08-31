@@ -58,6 +58,7 @@ const USER_SELECT = {
         select: {
           name: true,
           deletedAt: true,
+          status: true,
           rolePermissions: { select: { permission: { select: { key: true } } } },
         },
       },
@@ -88,7 +89,11 @@ async function findUserForLogin(email: string, organizationSlug?: string) {
 }
 
 function toSessionUser(user: NonNullable<RawUser>): SessionUser {
-  const activeRoles = user.userRoles.filter((ur) => ur.role.deletedAt === null);
+  // Mirrors the authorization join in `requireAuth`: a deleted or suspended
+  // role grants nothing.
+  const activeRoles = user.userRoles.filter(
+    (ur) => ur.role.deletedAt === null && ur.role.status === 'ACTIVE',
+  );
   const permissions = new Set<string>();
   for (const { role } of activeRoles) {
     for (const rp of role.rolePermissions) permissions.add(rp.permission.key);

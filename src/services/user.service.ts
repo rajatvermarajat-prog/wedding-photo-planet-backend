@@ -1,9 +1,9 @@
-import { UserStatus } from '@prisma/client';
+import { RoleStatus, UserStatus } from '@prisma/client';
 import { prisma } from '../config/prisma';
 import { andWhere, findScoped, paginate, searchFilter } from '../repositories/base.repository';
 import { resolveSort } from '../utils/pagination';
 import { hashPassword } from '../utils/password';
-import { badRequest, conflict } from '../utils/errors';
+import { badRequest, conflict, forbidden } from '../utils/errors';
 import { AuthContext } from '../types';
 import { AuditRequestContext, recordAudit } from './audit.service';
 import { revokeAllSessions } from './auth.service';
@@ -69,9 +69,13 @@ export function listUsers(
   });
 }
 
-export function getUser(organizationId: string, id: string) {
+export function getUser(
+  organizationId: string,
+  id: string,
+  db: { user: typeof prisma.user } = prisma,
+) {
   // PUBLIC_SELECT deliberately omits passwordHash — it never leaves the DB (§37).
-  return findScoped(prisma.user, organizationId, id, 'User', { select: PUBLIC_SELECT });
+  return findScoped(db.user, organizationId, id, 'User', { select: PUBLIC_SELECT });
 }
 
 export interface CreateUserInput {
@@ -95,15 +99,62 @@ export interface CreateUserInput {
   };
 }
 
+type RoleReader = Pick<typeof prisma.role, 'findMany'>;
+
+/**
+ * The single gate for handing out authority (§16). Every caller that writes
+ * `user_roles` goes through this, so the checks cannot be bypassed by using a
+ * different endpoint:
+ *
+ *   1. the role exists, is not soft-deleted, and belongs to the actor's studio
+ *   2. the role is ACTIVE — a suspended role must not gain new holders
+ *   3. the actor already holds every permission the role grants, so nobody can
+ *      escalate privilege by assigning a stronger role to an account they
+ *      control
+ */
+async function assertAssignableRoles(
+  db: RoleReader,
+  auth: AuthContext,
+  roleIds: string[],
+): Promise<Array<{ id: string; name: string }>> {
+  const roles = await db.findMany({
+    where: { id: { in: roleIds }, organizationId: auth.organizationId, deletedAt: null },
+    select: {
+      id: true,
+      name: true,
+      status: true,
+      rolePermissions: { select: { permission: { select: { key: true } } } },
+    },
+  });
+  if (roles.length !== roleIds.length) throw badRequest('One or more roles are invalid');
+
+  const inactive = roles.filter((role) => role.status !== RoleStatus.ACTIVE);
+  if (inactive.length > 0) {
+    throw conflict(
+      `Cannot assign inactive role(s): ${inactive.map((r) => r.name).join(', ')}`,
+    );
+  }
+
+  for (const role of roles) {
+    const escalating = role.rolePermissions
+      .map((rp) => rp.permission.key)
+      .filter((key) => !auth.permissions.has(key));
+    if (escalating.length > 0) {
+      throw forbidden(
+        `You are not allowed to assign the role "${role.name}" because it grants ` +
+          'permissions you do not hold',
+      );
+    }
+  }
+
+  return roles.map(({ id, name }) => ({ id, name }));
+}
+
 export async function createUser(auth: AuthContext, input: CreateUserInput, ctx: AuditRequestContext) {
   if (input.roleIds.length === 0) throw badRequest('At least one role must be assigned');
 
   return prisma.$transaction(async (tx) => {
-    const roles = await tx.role.findMany({
-      where: { id: { in: input.roleIds }, organizationId: auth.organizationId, deletedAt: null },
-      select: { id: true },
-    });
-    if (roles.length !== input.roleIds.length) throw badRequest('One or more roles are invalid');
+    await assertAssignableRoles(tx.role, auth, input.roleIds);
 
     const email = input.email.toLowerCase();
     const existing = await tx.user.findFirst({
@@ -202,11 +253,7 @@ export async function setUserRoles(
   return prisma.$transaction(async (tx) => {
     await findScoped(tx.user, auth.organizationId, id, 'User', { select: { id: true } });
 
-    const roles = await tx.role.findMany({
-      where: { id: { in: roleIds }, organizationId: auth.organizationId, deletedAt: null },
-      select: { id: true, name: true },
-    });
-    if (roles.length !== roleIds.length) throw badRequest('One or more roles are invalid');
+    const roles = await assertAssignableRoles(tx.role, auth, roleIds);
 
     const before = await tx.userRole.findMany({
       where: { userId: id },
@@ -227,7 +274,8 @@ export async function setUserRoles(
       newData: { roles: roles.map((r) => r.name) },
     });
 
-    return getUser(auth.organizationId, id);
+    // Inside the transaction, so the response carries the new role set.
+    return getUser(auth.organizationId, id, tx);
   });
 }
 

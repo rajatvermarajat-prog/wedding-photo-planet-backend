@@ -58,12 +58,17 @@ export const removeUser = asyncHandler(async (req, res) => {
 
 export const listRoles = asyncHandler(async (req, res) => {
   const auth = requireAuthContext(req);
-  return sendSuccess(res, await roleService.listRoles(auth.organizationId));
+  return sendSuccess(res, await roleService.listRoles(auth));
 });
 
 export const getRole = asyncHandler(async (req, res) => {
   const auth = requireAuthContext(req);
   return sendSuccess(res, await roleService.getRole(auth.organizationId, req.params.id));
+});
+
+export const listRoleUsers = asyncHandler(async (req, res) => {
+  const auth = requireAuthContext(req);
+  return sendSuccess(res, await roleService.listRoleUsers(auth.organizationId, req.params.id));
 });
 
 export const createRole = asyncHandler(async (req, res) => {
@@ -94,9 +99,13 @@ export const removeRole = asyncHandler(async (req, res) => {
   return sendNoContent(res);
 });
 
-export const listPermissions = asyncHandler(async (_req, res) =>
-  sendSuccess(res, await roleService.listPermissions()),
-);
+export const listPermissions = asyncHandler(async (_req, res) => {
+  const permissions = await roleService.listPermissions();
+  // Seeded catalogue: identical for every actor and only changes on deploy, so
+  // the browser may reuse it instead of refetching on each roles screen visit.
+  res.setHeader('Cache-Control', 'private, max-age=300');
+  return sendSuccess(res, permissions);
+});
 
 // --- Organization & branches ---------------------------------------------
 

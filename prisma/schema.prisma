@@ -50,6 +50,13 @@ enum RoleType {
   CUSTOM
 }
 
+/// An INACTIVE role keeps its permission mapping but grants nothing and cannot
+/// be assigned, so access can be suspended without losing the definition.
+enum RoleStatus {
+  ACTIVE
+  INACTIVE
+}
+
 enum SessionStatus {
   ACTIVE
   LOGGED_OUT
@@ -592,8 +599,9 @@ model Role {
   organizationId String    @map("organization_id") @db.Uuid
   name           String    @db.VarChar(64)
   description    String?   @db.VarChar(255)
-  type           RoleType  @default(CUSTOM)
-  isDefault      Boolean   @default(false) @map("is_default")
+  type           RoleType   @default(CUSTOM)
+  status         RoleStatus @default(ACTIVE)
+  isDefault      Boolean    @default(false) @map("is_default")
   createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt      DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
   deletedAt      DateTime? @map("deleted_at") @db.Timestamptz(6)

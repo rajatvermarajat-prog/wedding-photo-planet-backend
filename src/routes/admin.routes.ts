@@ -84,6 +84,12 @@ roleRouter.get(
   validate({ params: idParam }),
   controller.getRole,
 );
+roleRouter.get(
+  '/:id/users',
+  requireAnyPermission('ROLE_VIEW', 'TEAM_VIEW'),
+  validate({ params: idParam }),
+  controller.listRoleUsers,
+);
 roleRouter.patch(
   '/:id',
   requirePermission('ROLE_UPDATE'),

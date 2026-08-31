@@ -92,7 +92,7 @@ export async function requireAuth(
       JOIN users u ON u.id = s.user_id
       JOIN organizations o ON o.id = u.organization_id
       LEFT JOIN user_roles ur ON ur.user_id = u.id
-      LEFT JOIN roles r ON r.id = ur.role_id AND r.deleted_at IS NULL
+      LEFT JOIN roles r ON r.id = ur.role_id AND r.deleted_at IS NULL AND r.status = 'ACTIVE'
       LEFT JOIN role_permissions rp ON rp.role_id = r.id
       LEFT JOIN permissions p ON p.id = rp.permission_id
       WHERE s.id = ${payload.sessionId}::uuid
