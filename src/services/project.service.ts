@@ -148,6 +148,8 @@ export interface CreateProjectInput {
   venueAddress?: string;
   venueCity?: string;
   totalQuotation?: Prisma.Decimal.Value;
+  customServiceType?: string;
+  otherClientDetails?: string;
   notes?: string;
   managerId?: string;
   events?: Array<{
@@ -212,6 +214,8 @@ export async function createProject(
         venueAddress: input.venueAddress,
         venueCity: input.venueCity,
         totalQuotation: input.totalQuotation ?? 0,
+        customServiceType: input.customServiceType,
+        otherClientDetails: input.otherClientDetails,
         notes: input.notes,
         managerId: input.managerId,
         createdById: auth.userId,
@@ -334,6 +338,8 @@ export async function updateProject(
         venueAddress: input.venueAddress,
         venueCity: input.venueCity,
         totalQuotation: input.totalQuotation,
+        customServiceType: input.customServiceType,
+        otherClientDetails: input.otherClientDetails,
         notes: input.notes,
         managerId: input.managerId,
         branchId: input.branchId,

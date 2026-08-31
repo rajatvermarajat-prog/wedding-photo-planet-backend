@@ -992,6 +992,8 @@ model Project {
   venueAddress    String?       @map("venue_address") @db.VarChar(255)
   venueCity       String?       @map("venue_city") @db.VarChar(80)
   totalQuotation  Decimal       @default(0) @map("total_quotation") @db.Decimal(14, 2)
+  customServiceType String?     @map("custom_service_type") @db.VarChar(160)
+  otherClientDetails String?    @map("other_client_details") @db.Text
   notes           String?       @db.Text
   createdById     String?       @map("created_by_id") @db.Uuid
   managerId       String?       @map("manager_id") @db.Uuid
