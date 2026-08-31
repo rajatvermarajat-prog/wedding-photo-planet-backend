@@ -225,3 +225,4 @@ export const updateAssignmentSchema = z.object({
 });
 
 export const assignmentParams = z.object({ id: uuid, assignmentId: uuid });
+export const paymentMilestoneParams = z.object({ id: uuid, milestoneId: z.string().trim().min(1).max(64) });

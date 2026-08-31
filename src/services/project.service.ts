@@ -95,6 +95,47 @@ export function getProject(organizationId: string, id: string) {
   });
 }
 
+/** Removes only the planned instalment; recorded payments and project totals stay intact. */
+export async function deletePaymentMilestone(
+  auth: AuthContext, projectId: string, milestoneId: string,
+  legacyMilestones: Array<{ id: string; stageName: string; dueDate?: string; amount: number; status?: string; notes?: string }> = [],
+  ctx: AuditRequestContext,
+) {
+  return prisma.$transaction(async (tx) => {
+    const milestone = await tx.paymentMilestone.findFirst({
+      where: { id: milestoneId, projectId, organizationId: auth.organizationId },
+      select: { id: true, title: true, projectId: true },
+    });
+    // Existing UI schedules used `sched-*` IDs before milestones had a table.
+    // Persist every remaining legacy item atomically, deliberately excluding
+    // the requested item; after this first delete the DB is authoritative.
+    if (!milestone && legacyMilestones.length > 0) {
+      await tx.paymentMilestone.createMany({
+        data: legacyMilestones
+          .filter((item) => item.id !== milestoneId)
+          .map((item) => ({
+            id: item.id, organizationId: auth.organizationId, projectId,
+            title: item.stageName, amount: item.amount,
+            dueDate: item.dueDate && !Number.isNaN(Date.parse(item.dueDate)) ? new Date(item.dueDate) : null,
+            status: item.status?.toUpperCase() || 'PENDING', notes: item.notes,
+          })),
+        skipDuplicates: true,
+      });
+      return;
+    }
+    if (!milestone) throw notFound('Payment milestone');
+    await tx.paymentMilestone.delete({ where: { id: milestone.id } });
+    await recordAudit(tx, ctx, {
+      action: 'DELETE', entityType: 'PaymentMilestone', entityId: milestone.id,
+      summary: `Payment milestone ${milestone.title} deleted`, oldData: milestone,
+    });
+  });
+}
+
+export function listPaymentMilestones(organizationId: string, projectId: string) {
+  return prisma.paymentMilestone.findMany({ where: { organizationId, projectId }, orderBy: { createdAt: 'asc' } });
+}
+
 export interface CreateProjectInput {
   clientId: string;
   leadId?: string;

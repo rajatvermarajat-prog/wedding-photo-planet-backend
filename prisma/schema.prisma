@@ -782,7 +782,7 @@ model EmployeeProfile {
 // ===========================================================================
 
 model LeadSource {
-  id             String   @id @default(uuid()) @db.Uuid
+  id             String   @id @db.VarChar(64)
   organizationId String   @map("organization_id") @db.Uuid
   name           String   @db.VarChar(80)
   description    String?  @db.VarChar(255)
@@ -1021,6 +1021,7 @@ model Project {
   files          FileObject[]
   communications ClientCommunication[]
   attendances    Attendance[]
+  paymentMilestones PaymentMilestone[]
 
   @@unique([organizationId, projectNumber])
   @@index([organizationId, status])
@@ -1030,6 +1031,24 @@ model Project {
   @@index([managerId])
   @@index([createdAt])
   @@map("projects")
+}
+
+model PaymentMilestone {
+  id             String   @id @default(uuid()) @db.Uuid
+  organizationId String   @map("organization_id") @db.Uuid
+  projectId      String   @map("project_id") @db.Uuid
+  title          String   @db.VarChar(160)
+  dueDate        DateTime? @map("due_date") @db.Date
+  amount         Decimal  @default(0) @db.Decimal(14, 2)
+  status         String   @default("PENDING") @db.VarChar(20)
+  notes          String?  @db.Text
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, projectId])
+  @@map("payment_milestones")
 }
 
 model ProjectStatusHistory {
