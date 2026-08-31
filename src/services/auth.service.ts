@@ -168,15 +168,17 @@ export async function login(
 
   if (!passwordValid) {
     const attempts = user.failedLoginAttempts + 1;
-    await prisma.user.update({
-      where: { id: user.id },
-      data: {
-        failedLoginAttempts: attempts,
-        lockedUntil:
-          attempts >= MAX_FAILED_ATTEMPTS ? new Date(Date.now() + LOCK_DURATION_MS) : null,
-      },
-    });
-    await recordAttempt('INVALID_CREDENTIALS', user.id);
+    await Promise.all([
+      prisma.user.update({
+        where: { id: user.id },
+        data: {
+          failedLoginAttempts: attempts,
+          lockedUntil:
+            attempts >= MAX_FAILED_ATTEMPTS ? new Date(Date.now() + LOCK_DURATION_MS) : null,
+        },
+      }),
+      recordAttempt('INVALID_CREDENTIALS', user.id),
+    ]);
     throw unauthenticated('Invalid email or password');
   }
 
@@ -185,25 +187,28 @@ export async function login(
     throw forbidden(`Account is ${user.status.toLowerCase()}`);
   }
 
-  await prisma.user.update({
-    where: { id: user.id },
-    data: { failedLoginAttempts: 0, lockedUntil: null, lastLoginAt: new Date() },
-  });
-
-  const tokens = await issueSession(user.id, user.organizationId, meta);
-  await recordAttempt('SUCCESS', user.id);
-
-  await recordAudit(
-    prisma,
-    {
-      organizationId: user.organizationId,
-      actorId: user.id,
-      ipAddress: meta.ipAddress,
-      userAgent: meta.userAgent,
-      requestId: meta.requestId,
-    },
-    { action: 'LOGIN', entityType: 'User', entityId: user.id, summary: 'User signed in' },
-  );
+  // Only the session issue gates the response; the counter reset, the login
+  // history row and the audit entry are independent bookkeeping, so they run
+  // concurrently instead of adding three sequential round trips to every login.
+  const [tokens] = await Promise.all([
+    issueSession(user.id, user.organizationId, meta),
+    prisma.user.update({
+      where: { id: user.id },
+      data: { failedLoginAttempts: 0, lockedUntil: null, lastLoginAt: new Date() },
+    }),
+    recordAttempt('SUCCESS', user.id),
+    recordAudit(
+      prisma,
+      {
+        organizationId: user.organizationId,
+        actorId: user.id,
+        ipAddress: meta.ipAddress,
+        userAgent: meta.userAgent,
+        requestId: meta.requestId,
+      },
+      { action: 'LOGIN', entityType: 'User', entityId: user.id, summary: 'User signed in' },
+    ),
+  ]);
 
   return { user: toSessionUser(user), tokens };
 }

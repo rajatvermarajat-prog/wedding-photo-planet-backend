@@ -36,7 +36,7 @@ export interface ListResult<T> {
 }
 
 /**
- * Runs the count and the page in one round trip. `limit` has already been
+ * Runs the count and the page concurrently. `limit` has already been
  * clamped by `resolvePagination`, so an unbounded read is not expressible.
  */
 export async function paginate<T>(
@@ -54,8 +54,10 @@ export async function paginate<T>(
   if (options.include) query.include = options.include;
   if (options.select) query.select = options.select;
 
-  // One transaction so the page and its total cannot disagree under concurrent writes.
-  const [items, total] = await prisma.$transaction([
+  // Issued concurrently rather than in a transaction: wrapping them cost a
+  // BEGIN and a COMMIT round trip on every list request, and the only thing it
+  // bought was a total that cannot drift by a row mid-write.
+  const [items, total] = await Promise.all([
     delegate.findMany(query),
     delegate.count({ where: options.where }),
   ]);

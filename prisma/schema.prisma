@@ -23,6 +23,9 @@ datasource db {
 generator client {
   provider      = "prisma-client-js"
   binaryTargets = ["native", "rhel-openssl-3.0.x"]
+  // Loads `include`/nested `select` with LATERAL JOINs instead of one extra
+  // query per relation, which is what made list endpoints round-trip bound.
+  previewFeatures = ["relationJoins"]
 }
 
 // ===========================================================================
@@ -1007,6 +1010,7 @@ model Project {
   @@unique([organizationId, projectNumber])
   @@index([organizationId, status])
   @@index([organizationId, weddingDate])
+  @@index([organizationId, status, deliveryDueDate])
   @@index([clientId])
   @@index([managerId])
   @@index([createdAt])
@@ -1130,6 +1134,7 @@ model Shoot {
   @@index([shootDate])
   @@index([status])
   @@index([organizationId, shootDate])
+  @@index([organizationId, status, shootDate])
   @@map("shoots")
 }
 
@@ -1304,6 +1309,8 @@ model Task {
   @@index([dueDate])
   @@index([projectId])
   @@index([organizationId, status])
+  @@index([organizationId, status, dueDate])
+  @@index([organizationId, assigneeId, status])
   @@map("tasks")
 }
 
@@ -1328,6 +1335,7 @@ model PersonalTodo {
 
   @@index([userId, completed])
   @@index([organizationId, userId])
+  @@index([organizationId, userId, completed])
   @@map("personal_todos")
 }
 
@@ -1789,6 +1797,7 @@ model Attendance {
   @@unique([userId, date])
   @@index([organizationId, date])
   @@index([date, status])
+  @@index([organizationId, date, status])
   @@map("attendance")
 }
 
@@ -1876,6 +1885,7 @@ model Notification {
   user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId, isRead])
+  @@index([organizationId, userId, isRead])
   @@index([createdAt])
   @@index([entityType, entityId])
   @@map("notifications")

@@ -10,6 +10,19 @@ export interface AuthContext {
   fullName: string;
   roles: string[];
   permissions: Set<string>;
+  /** The `/auth/me` payload, already loaded while authenticating the request. */
+  sessionUser?: {
+    id: string;
+    organizationId: string;
+    branchId: string | null;
+    email: string;
+    fullName: string;
+    employeeCode: string | null;
+    status: string;
+    roles: string[];
+    permissions: string[];
+    organization: { id: string; name: string; slug: string; currency: string; timezone: string };
+  };
 }
 
 declare global {

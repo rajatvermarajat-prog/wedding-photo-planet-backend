@@ -27,18 +27,19 @@ export const createUser = asyncHandler(async (req, res) => {
 
 export const updateUser = asyncHandler(async (req, res) => {
   const auth = requireAuthContext(req);
-  return sendSuccess(
-    res,
-    await userService.updateUser(auth, req.params.id, req.body, auditContext(req)),
-  );
+  const user = await userService.updateUser(auth, req.params.id, req.body, auditContext(req));
+  return sendSuccess(res, user);
 });
 
 export const setUserRoles = asyncHandler(async (req, res) => {
   const auth = requireAuthContext(req);
-  return sendSuccess(
-    res,
-    await userService.setUserRoles(auth, req.params.id, req.body.roleIds, auditContext(req)),
+  const user = await userService.setUserRoles(
+    auth,
+    req.params.id,
+    req.body.roleIds,
+    auditContext(req),
   );
+  return sendSuccess(res, user);
 });
 
 export const resetUserPassword = asyncHandler(async (req, res) => {
@@ -72,23 +73,19 @@ export const createRole = asyncHandler(async (req, res) => {
 
 export const updateRole = asyncHandler(async (req, res) => {
   const auth = requireAuthContext(req);
-  return sendSuccess(
-    res,
-    await roleService.updateRole(auth, req.params.id, req.body, auditContext(req)),
-  );
+  const role = await roleService.updateRole(auth, req.params.id, req.body, auditContext(req));
+  return sendSuccess(res, role);
 });
 
 export const setRolePermissions = asyncHandler(async (req, res) => {
   const auth = requireAuthContext(req);
-  return sendSuccess(
-    res,
-    await roleService.setRolePermissions(
-      auth,
-      req.params.id,
-      req.body.permissionKeys,
-      auditContext(req),
-    ),
+  const role = await roleService.setRolePermissions(
+    auth,
+    req.params.id,
+    req.body.permissionKeys,
+    auditContext(req),
   );
+  return sendSuccess(res, role);
 });
 
 export const removeRole = asyncHandler(async (req, res) => {

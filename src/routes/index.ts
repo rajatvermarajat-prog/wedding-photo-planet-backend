@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { requireAuth } from '../middleware/auth';
 import authRoutes from './auth.routes';
 import { clientRouter, leadRouter } from './crm.routes';
+import { dashboardRouter } from './dashboard.routes';
 import { eventRouter, projectRouter, shootRouter } from './project.routes';
 import { expenseRouter, invoiceRouter, paymentRouter, quotationRouter } from './finance.routes';
 import { attendanceRouter, deliveryRouter, freelancerRouter, personalNoteRouter, personalTodoRouter, taskRouter } from './ops.routes';
@@ -28,6 +29,8 @@ router.use('/auth', authRoutes);
 // Everything below requires a valid session; each route additionally names the
 // permission it needs (§6 — authorization is never left to the frontend).
 router.use(requireAuth);
+
+router.use('/dashboard', dashboardRouter);
 
 router.use('/organizations', organizationRouter);
 router.use('/branches', branchRouter);

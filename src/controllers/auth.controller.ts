@@ -54,6 +54,8 @@ export const logout = asyncHandler(async (req, res) => {
 
 export const me = asyncHandler(async (req, res) => {
   const auth = requireAuthContext(req);
+  // `requireAuth` already read this user, its roles and its permissions.
+  if (auth.sessionUser) return sendSuccess(res, auth.sessionUser);
   return sendSuccess(res, await authService.getCurrentUser(auth.userId));
 });
 
