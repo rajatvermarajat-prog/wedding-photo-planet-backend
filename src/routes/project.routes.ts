@@ -75,12 +75,46 @@ projectRouter.delete(
   validate({ params: idParam }),
   controller.remove,
 );
-projectRouter.get(
-  '/:id/payment-milestones',
-  requirePermission('PROJECT_VIEW'),
+projectRouter.patch(
+  '/:id/data-backup',
+  requirePermission('PROJECT_UPDATE'),
   validate({ params: idParam }),
-  controller.listPaymentMilestones,
+  controller.updateDataBackup,
 );
+projectRouter.patch(
+  '/:id/deliveries',
+  requirePermission('PROJECT_UPDATE'),
+  validate({ params: idParam }),
+  controller.updateDeliveries,
+);
+projectRouter.get(
+  '/:id/shoots',
+  requireAnyPermission('SHOOT_VIEW', 'DATA_MANAGEMENT_VIEW'),
+  validate({ params: idParam }),
+  (req, res, next) => {
+    req.query = { ...req.query, projectId: req.params.id };
+    return controller.listShoots(req, res, next);
+  },
+);
+projectRouter.get(
+  '/:id/tasks',
+  requirePermission('TASK_VIEW'),
+  validate({ params: idParam }),
+  (req, res, next) => {
+    req.query = { ...req.query, projectId: req.params.id };
+    return controller.listEvents(req, res, next);
+  },
+);
+projectRouter.get(
+  '/:id/payments',
+  requirePermission('PAYMENT_VIEW'),
+  validate({ params: idParam }),
+  (req, res, next) => {
+    req.query = { ...req.query, projectId: req.params.id };
+    return controller.listPaymentMilestones(req, res, next);
+  },
+);
+
 projectRouter.delete(
   '/:id/payment-milestones/:milestoneId',
   requirePermission('PROJECT_UPDATE'),

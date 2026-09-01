@@ -65,8 +65,8 @@ export function listProjects(organizationId: string, query: ProjectListQuery) {
   });
 }
 
-export function getProject(organizationId: string, id: string) {
-  return findScoped(prisma.project, organizationId, id, 'Project', {
+export async function getProject(organizationId: string, id: string) {
+  const project = await findScoped<Record<string, any>>(prisma.project, organizationId, id, 'Project', {
     include: {
       client: { include: { contacts: true, addresses: true } },
       manager: { select: { id: true, fullName: true, email: true } },
@@ -85,6 +85,14 @@ export function getProject(organizationId: string, id: string) {
           },
         },
       },
+      tasks: {
+        where: { deletedAt: null },
+        orderBy: { createdAt: 'asc' },
+        include: { assignee: { select: { id: true, fullName: true } } },
+      },
+      payments: {
+        orderBy: { paymentDate: 'desc' },
+      },
       deliveries: { where: { deletedAt: null }, orderBy: { expectedDate: 'asc' } },
       statusHistory: {
         orderBy: { createdAt: 'desc' },
@@ -93,6 +101,21 @@ export function getProject(organizationId: string, id: string) {
       },
     },
   });
+
+  let meta: { dataBackup?: Record<string, unknown>; deliveryStatus?: Record<string, unknown> } = {};
+  if (project.otherClientDetails) {
+    try {
+      meta = JSON.parse(project.otherClientDetails);
+    } catch {
+      meta = {};
+    }
+  }
+
+  return {
+    ...project,
+    dataBackup: meta.dataBackup || null,
+    deliveryStatus: meta.deliveryStatus || null,
+  };
 }
 
 /** Removes only the planned instalment; recorded payments and project totals stay intact. */
@@ -451,3 +474,78 @@ export function getProjectStatusHistory(organizationId: string, projectId: strin
     include: { changedBy: { select: { id: true, fullName: true } } },
   });
 }
+
+export async function updateProjectDataBackup(
+  auth: AuthContext,
+  projectId: string,
+  dataBackup: Record<string, unknown>,
+  ctx: AuditRequestContext,
+) {
+  return prisma.$transaction(async (tx) => {
+    const existing = await findScoped<{ id: string; otherClientDetails: string | null }>(
+      tx.project,
+      auth.organizationId,
+      projectId,
+      'Project',
+    );
+    let parsed: Record<string, unknown> = {};
+    if (existing.otherClientDetails) {
+      try {
+        parsed = JSON.parse(existing.otherClientDetails);
+      } catch {
+        parsed = { customDetails: existing.otherClientDetails };
+      }
+    }
+    parsed.dataBackup = dataBackup;
+    const updated = await tx.project.update({
+      where: { id: projectId },
+      data: { otherClientDetails: JSON.stringify(parsed) },
+    });
+    await recordAudit(tx, ctx, {
+      action: 'UPDATE',
+      entityType: 'ProjectDataBackup',
+      entityId: projectId,
+      summary: 'Project data backup posture updated',
+      newData: dataBackup,
+    });
+    return updated;
+  });
+}
+
+export async function updateProjectDeliveries(
+  auth: AuthContext,
+  projectId: string,
+  deliveryStatus: Record<string, unknown>,
+  ctx: AuditRequestContext,
+) {
+  return prisma.$transaction(async (tx) => {
+    const existing = await findScoped<{ id: string; otherClientDetails: string | null }>(
+      tx.project,
+      auth.organizationId,
+      projectId,
+      'Project',
+    );
+    let parsed: Record<string, unknown> = {};
+    if (existing.otherClientDetails) {
+      try {
+        parsed = JSON.parse(existing.otherClientDetails);
+      } catch {
+        parsed = { customDetails: existing.otherClientDetails };
+      }
+    }
+    parsed.deliveryStatus = deliveryStatus;
+    const updated = await tx.project.update({
+      where: { id: projectId },
+      data: { otherClientDetails: JSON.stringify(parsed) },
+    });
+    await recordAudit(tx, ctx, {
+      action: 'UPDATE',
+      entityType: 'ProjectDeliveries',
+      entityId: projectId,
+      summary: 'Project delivery status updated',
+      newData: deliveryStatus,
+    });
+    return updated;
+  });
+}
+

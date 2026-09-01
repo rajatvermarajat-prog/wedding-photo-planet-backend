@@ -70,6 +70,18 @@ export const statusHistory = asyncHandler(async (req, res) => {
   );
 });
 
+export const updateDataBackup = asyncHandler(async (req, res) => {
+  const auth = requireAuthContext(req);
+  return sendSuccess(res, await projectService.updateProjectDataBackup(auth, req.params.id, req.body, auditContext(req)));
+});
+
+export const updateDeliveries = asyncHandler(async (req, res) => {
+  const auth = requireAuthContext(req);
+  return sendSuccess(res, await projectService.updateProjectDeliveries(auth, req.params.id, req.body, auditContext(req)));
+});
+
+
+
 export const listClientAssets = asyncHandler(async (req, res) => sendSuccess(res, await clientAssetService.getProjectClientAssets(requireAuthContext(req).organizationId, req.params.id)));
 export const createClientAssetUploadIntent = asyncHandler(async (req, res) => sendCreated(res, await clientAssetService.createProjectClientAssetUploadIntent(requireAuthContext(req), req.params.id, req.body)));
 export const createClientAsset = asyncHandler(async (req, res) => sendCreated(res, await clientAssetService.createProjectClientAsset(requireAuthContext(req), req.params.id, req.body, auditContext(req))));
