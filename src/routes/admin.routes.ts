@@ -50,6 +50,8 @@ userRouter.patch(
   validate({ params: idParam, body: updateUserSchema }),
   controller.updateUser,
 );
+userRouter.get('/:id/salary-payments', requirePermission('USER_VIEW'), validate({ params: idParam }), controller.listSalaryPayments);
+userRouter.put('/:id/salary-payments', requirePermission('USER_UPDATE'), validate({ params: idParam }), controller.upsertSalaryPayment);
 userRouter.put(
   '/:id/roles',
   requirePermission('USER_MANAGE'),

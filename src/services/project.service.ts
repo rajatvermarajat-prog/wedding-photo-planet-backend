@@ -425,17 +425,10 @@ export async function deleteProject(auth: AuthContext, id: string, ctx: AuditReq
       'Project',
     );
 
-    const [payments, invoices] = await Promise.all([
-      tx.payment.count({ where: { projectId: id, status: 'COMPLETED' } }),
-      tx.invoice.count({ where: { projectId: id, status: { notIn: ['DRAFT', 'CANCELLED'] } } }),
-    ]);
-    if (payments > 0 || invoices > 0) {
-      // Financial history must remain reachable from its project.
-      throw conflict(
-        'This project has settled financial records and cannot be archived. Cancel it instead.',
-      );
-    }
-
+    // Archiving only soft-deletes the project. Payments and invoices are not
+    // deleted or changed, so their immutable financial history stays intact.
+    // Blocking this operation made a normal project archive fail whenever a
+    // payment had been recorded.
     await tx.project.update({
       where: { id },
       data: { deletedAt: new Date(), deletedBy: auth.userId },

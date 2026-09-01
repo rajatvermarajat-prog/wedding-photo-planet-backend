@@ -161,7 +161,7 @@ async function main(): Promise<void> {
   for (const name of DEPARTMENTS) {
     await prisma.department.upsert({
       where: { organizationId_name: { organizationId: organization.id, name } },
-      create: { organizationId: organization.id, name },
+      create: { id: `lead-source-${name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')}`, organizationId: organization.id, name },
       update: {},
     });
   }
@@ -189,7 +189,11 @@ async function main(): Promise<void> {
   for (const name of LEAD_SOURCES) {
     await prisma.leadSource.upsert({
       where: { organizationId_name: { organizationId: organization.id, name } },
-      create: { organizationId: organization.id, name },
+      create: {
+        id: `lead-source-${name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')}`,
+        organizationId: organization.id,
+        name,
+      },
       update: {},
     });
   }
