@@ -178,8 +178,10 @@ export async function getSummary(auth: AuthContext): Promise<DashboardSummary> {
             WHERE organization_id = ${org} AND deleted_at IS NULL
             GROUP BY status
           ) s) AS projects_by_status,
-        CASE WHEN ${canSeeFinance} THEN (SELECT coalesce(sum(amount), 0) FROM payments
-          WHERE organization_id = ${org} AND status = 'COMPLETED') END AS received,
+        CASE WHEN ${canSeeFinance} THEN (SELECT coalesce(sum(payments.amount), 0) FROM payments
+          INNER JOIN projects ON projects.id = payments.project_id
+          WHERE payments.organization_id = ${org} AND payments.status = 'COMPLETED'
+            AND projects.organization_id = ${org} AND projects.deleted_at IS NULL) END AS received,
         CASE WHEN ${canSeeFinance} THEN (SELECT coalesce(sum(total_quotation), 0) FROM projects
           WHERE organization_id = ${org} AND deleted_at IS NULL) END AS quoted
     `,
