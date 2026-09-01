@@ -3,6 +3,7 @@ import { sendCreated, sendNoContent, sendSuccess } from '../utils/response';
 import * as projectService from '../services/project.service';
 import * as eventService from '../services/event.service';
 import * as shootService from '../services/shoot.service';
+import * as clientAssetService from '../services/projectClientAsset.service';
 
 // --- Projects -------------------------------------------------------------
 
@@ -68,6 +69,25 @@ export const statusHistory = asyncHandler(async (req, res) => {
     await projectService.getProjectStatusHistory(auth.organizationId, req.params.id),
   );
 });
+
+export const updateDataBackup = asyncHandler(async (req, res) => {
+  const auth = requireAuthContext(req);
+  return sendSuccess(res, await projectService.updateProjectDataBackup(auth, req.params.id, req.body, auditContext(req)));
+});
+
+export const updateDeliveries = asyncHandler(async (req, res) => {
+  const auth = requireAuthContext(req);
+  return sendSuccess(res, await projectService.updateProjectDeliveries(auth, req.params.id, req.body, auditContext(req)));
+});
+
+
+
+export const listClientAssets = asyncHandler(async (req, res) => sendSuccess(res, await clientAssetService.getProjectClientAssets(requireAuthContext(req).organizationId, req.params.id)));
+export const createClientAssetUploadIntent = asyncHandler(async (req, res) => sendCreated(res, await clientAssetService.createProjectClientAssetUploadIntent(requireAuthContext(req), req.params.id, req.body)));
+export const createClientAsset = asyncHandler(async (req, res) => sendCreated(res, await clientAssetService.createProjectClientAsset(requireAuthContext(req), req.params.id, req.body, auditContext(req))));
+export const updateClientAsset = asyncHandler(async (req, res) => sendSuccess(res, await clientAssetService.updateProjectClientAsset(requireAuthContext(req), req.params.id, req.params.assetId, req.body, auditContext(req))));
+export const deleteClientAsset = asyncHandler(async (req, res) => { await clientAssetService.deleteProjectClientAsset(requireAuthContext(req), req.params.id, req.params.assetId, auditContext(req)); return sendNoContent(res); });
+export const clientAssetDownloadUrl = asyncHandler(async (req, res) => sendSuccess(res, await clientAssetService.getProjectClientAssetDownloadUrl(requireAuthContext(req).organizationId, req.params.id, req.params.assetId)));
 
 // --- Events ---------------------------------------------------------------
 

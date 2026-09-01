@@ -87,6 +87,17 @@ export const projectStatusSchema = z.object({
   reason: z.string().max(500).optional(),
 });
 
+export const projectClientAssetParams = z.object({ id: uuid, assetId: uuid });
+export const projectClientAssetUploadIntentSchema = z.object({
+  originalName: z.string().trim().min(1).max(255),
+  mimeType: z.enum(['image/jpeg', 'image/png', 'image/webp', 'application/pdf', 'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document']),
+});
+export const createProjectClientAssetSchema = projectClientAssetUploadIntentSchema.extend({
+  bucket: z.string().trim().min(1).max(120), objectKey: z.string().trim().min(1).max(512), sizeBytes: z.coerce.number().int().min(1).max(10 * 1024 * 1024),
+  category: z.string().trim().max(80).optional(), title: z.string().trim().max(255).optional(), notes: z.string().max(2000).optional(),
+});
+export const updateProjectClientAssetSchema = z.object({ category: z.string().trim().max(80).optional(), title: z.string().trim().max(255).optional(), notes: z.string().max(2000).optional() });
+
 // --- Events ---------------------------------------------------------------
 
 export const EVENT_STATUS = z.enum(['PLANNED', 'CONFIRMED', 'IN_PROGRESS', 'COMPLETED', 'CANCELLED']);

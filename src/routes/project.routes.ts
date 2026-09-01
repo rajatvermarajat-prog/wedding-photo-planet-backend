@@ -19,6 +19,10 @@ import {
   updateEventSchema,
   updateProjectSchema,
   updateShootSchema,
+  createProjectClientAssetSchema,
+  projectClientAssetParams,
+  projectClientAssetUploadIntentSchema,
+  updateProjectClientAssetSchema,
 } from '../validators/project.validator';
 
 export const projectRouter = Router();
@@ -35,6 +39,12 @@ projectRouter.post(
   validate({ body: createProjectSchema }),
   controller.create,
 );
+projectRouter.get('/:id/client-assets', requireAnyPermission('PROJECT_VIEW', 'DATA_MANAGEMENT_VIEW'), validate({ params: idParam }), controller.listClientAssets);
+projectRouter.post('/:id/client-assets/upload-intent', requirePermission('PROJECT_UPDATE'), validate({ params: idParam, body: projectClientAssetUploadIntentSchema }), controller.createClientAssetUploadIntent);
+projectRouter.post('/:id/client-assets', requirePermission('PROJECT_UPDATE'), validate({ params: idParam, body: createProjectClientAssetSchema }), controller.createClientAsset);
+projectRouter.get('/:id/client-assets/:assetId/download-url', requireAnyPermission('PROJECT_VIEW', 'DATA_MANAGEMENT_VIEW'), validate({ params: projectClientAssetParams }), controller.clientAssetDownloadUrl);
+projectRouter.patch('/:id/client-assets/:assetId', requirePermission('PROJECT_UPDATE'), validate({ params: projectClientAssetParams, body: updateProjectClientAssetSchema }), controller.updateClientAsset);
+projectRouter.delete('/:id/client-assets/:assetId', requirePermission('PROJECT_UPDATE'), validate({ params: projectClientAssetParams }), controller.deleteClientAsset);
 projectRouter.get(
   '/:id',
   requireAnyPermission('PROJECT_VIEW', 'DATA_MANAGEMENT_VIEW'),
@@ -65,12 +75,46 @@ projectRouter.delete(
   validate({ params: idParam }),
   controller.remove,
 );
-projectRouter.get(
-  '/:id/payment-milestones',
-  requirePermission('PROJECT_VIEW'),
+projectRouter.patch(
+  '/:id/data-backup',
+  requirePermission('PROJECT_UPDATE'),
   validate({ params: idParam }),
-  controller.listPaymentMilestones,
+  controller.updateDataBackup,
 );
+projectRouter.patch(
+  '/:id/deliveries',
+  requirePermission('PROJECT_UPDATE'),
+  validate({ params: idParam }),
+  controller.updateDeliveries,
+);
+projectRouter.get(
+  '/:id/shoots',
+  requireAnyPermission('SHOOT_VIEW', 'DATA_MANAGEMENT_VIEW'),
+  validate({ params: idParam }),
+  (req, res, next) => {
+    req.query = { ...req.query, projectId: req.params.id };
+    return controller.listShoots(req, res, next);
+  },
+);
+projectRouter.get(
+  '/:id/tasks',
+  requirePermission('TASK_VIEW'),
+  validate({ params: idParam }),
+  (req, res, next) => {
+    req.query = { ...req.query, projectId: req.params.id };
+    return controller.listEvents(req, res, next);
+  },
+);
+projectRouter.get(
+  '/:id/payments',
+  requirePermission('PAYMENT_VIEW'),
+  validate({ params: idParam }),
+  (req, res, next) => {
+    req.query = { ...req.query, projectId: req.params.id };
+    return controller.listPaymentMilestones(req, res, next);
+  },
+);
+
 projectRouter.delete(
   '/:id/payment-milestones/:milestoneId',
   requirePermission('PROJECT_UPDATE'),

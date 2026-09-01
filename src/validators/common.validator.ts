@@ -63,10 +63,7 @@ export const email = z.string().email().max(160).toLowerCase();
 
 export const phone = z
   .string()
-  .trim()
-  .min(6)
-  .max(32)
-  .regex(/^[+\d][\d\s\-()]*$/, 'Must be a valid phone number');
+  .regex(/^[6-9][0-9]{9}$/, 'Must be a valid 10-digit Indian mobile number starting with 6, 7, 8, or 9');
 
 /** Rejects trivially weak passwords before they can ever be hashed. */
 export const password = z
