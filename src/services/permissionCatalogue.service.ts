@@ -18,35 +18,53 @@ async function grantAlwaysOnPermissions() {
 
 /** Upserts the in-code catalogue and grants newly added keys to system roles. */
 export async function syncPermissionCatalogue(): Promise<number> {
-  const existing = await prisma.permission.findMany({ select: { key: true } });
-  const existingKeys = new Set(existing.map((row) => row.key));
-  const created: string[] = [];
+  const existing = await prisma.permission.findMany({
+    select: { key: true, module: true, label: true, isSensitive: true },
+  });
+  const existingByKey = new Map(existing.map((row) => [row.key, row]));
 
-  for (const permission of PERMISSIONS) {
-    if (existingKeys.has(permission.key)) {
-      await prisma.permission.update({
-        where: { key: permission.key },
-        data: {
-          module: permission.module,
-          label: permission.label,
-          isSensitive: permission.isSensitive ?? false,
-        },
-      });
-      continue;
-    }
-    await prisma.permission.create({
-      data: {
+  // The catalogue is static in-code data, so on every boot after the first one
+  // each row already matches. Comparing before writing turns what used to be
+  // one sequential UPDATE per permission — 100+ round trips, and the dominant
+  // cost of starting the process — into zero. `Permission` has no `updatedAt`,
+  // so a skipped no-op UPDATE leaves the row byte-identical.
+  const missing = PERMISSIONS.filter((permission) => !existingByKey.has(permission.key));
+  const stale = PERMISSIONS.filter((permission) => {
+    const row = existingByKey.get(permission.key);
+    return (
+      row !== undefined &&
+      (row.module !== permission.module ||
+        row.label !== permission.label ||
+        row.isSensitive !== (permission.isSensitive ?? false))
+    );
+  });
+
+  if (missing.length) {
+    await prisma.permission.createMany({
+      data: missing.map((permission) => ({
         key: permission.key,
+        module: permission.module,
+        label: permission.label,
+        isSensitive: permission.isSensitive ?? false,
+      })),
+      skipDuplicates: true,
+    });
+  }
+
+  for (const permission of stale) {
+    await prisma.permission.update({
+      where: { key: permission.key },
+      data: {
         module: permission.module,
         label: permission.label,
         isSensitive: permission.isSensitive ?? false,
       },
     });
-    created.push(permission.key);
   }
 
   await grantAlwaysOnPermissions();
 
+  const created = missing.map((permission) => permission.key);
   if (!created.length) return 0;
 
   const rows = await prisma.permission.findMany({
@@ -54,26 +72,25 @@ export async function syncPermissionCatalogue(): Promise<number> {
     select: { id: true, key: true },
   });
   const idByKey = new Map(rows.map((row) => [row.key, row.id]));
-  const orgs = await prisma.organization.findMany({ select: { id: true } });
 
-  for (const org of orgs) {
-    for (const roleName of SYSTEM_ROLES) {
-      const role = await prisma.role.findFirst({
-        where: { organizationId: org.id, name: roleName, type: RoleType.SYSTEM, deletedAt: null },
-        select: { id: true },
-      });
-      if (!role) continue;
-      const allowed = new Set(permissionsForSystemRole(roleName));
-      const permissionIds = created
-        .filter((key) => allowed.has(key))
-        .map((key) => idByKey.get(key))
-        .filter((id): id is string => Boolean(id));
-      if (!permissionIds.length) continue;
-      await prisma.rolePermission.createMany({
-        data: permissionIds.map((permissionId) => ({ roleId: role.id, permissionId })),
-        skipDuplicates: true,
-      });
-    }
+  // One read for every system role across every organization, rather than a
+  // `findFirst` per organization-and-role pair.
+  const roles = await prisma.role.findMany({
+    where: { name: { in: [...SYSTEM_ROLES] }, type: RoleType.SYSTEM, deletedAt: null },
+    select: { id: true, name: true },
+  });
+
+  const grants = roles.flatMap((role) => {
+    const allowed = new Set(permissionsForSystemRole(role.name as (typeof SYSTEM_ROLES)[number]));
+    return created
+      .filter((key) => allowed.has(key))
+      .map((key) => idByKey.get(key))
+      .filter((id): id is string => Boolean(id))
+      .map((permissionId) => ({ roleId: role.id, permissionId }));
+  });
+
+  if (grants.length) {
+    await prisma.rolePermission.createMany({ data: grants, skipDuplicates: true });
   }
 
   return created.length;

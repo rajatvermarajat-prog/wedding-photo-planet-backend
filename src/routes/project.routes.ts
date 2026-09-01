@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import * as controller from '../controllers/project.controller';
+import * as opsController from '../controllers/ops.controller';
 import { validate } from '../middleware/validate';
 import { requireAnyPermission, requirePermission } from '../middleware/rbac';
 import { idParam } from '../validators/common.validator';
@@ -102,8 +103,14 @@ projectRouter.get(
   validate({ params: idParam }),
   (req, res, next) => {
     req.query = { ...req.query, projectId: req.params.id };
-    return controller.listEvents(req, res, next);
+    return opsController.listTasks(req, res, next);
   },
+);
+projectRouter.get(
+  '/:id/payment-milestones',
+  requirePermission('PAYMENT_VIEW'),
+  validate({ params: idParam }),
+  controller.listPaymentMilestones,
 );
 projectRouter.get(
   '/:id/payments',
