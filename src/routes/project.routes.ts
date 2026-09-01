@@ -19,6 +19,10 @@ import {
   updateEventSchema,
   updateProjectSchema,
   updateShootSchema,
+  createProjectClientAssetSchema,
+  projectClientAssetParams,
+  projectClientAssetUploadIntentSchema,
+  updateProjectClientAssetSchema,
 } from '../validators/project.validator';
 
 export const projectRouter = Router();
@@ -35,6 +39,12 @@ projectRouter.post(
   validate({ body: createProjectSchema }),
   controller.create,
 );
+projectRouter.get('/:id/client-assets', requireAnyPermission('PROJECT_VIEW', 'DATA_MANAGEMENT_VIEW'), validate({ params: idParam }), controller.listClientAssets);
+projectRouter.post('/:id/client-assets/upload-intent', requirePermission('PROJECT_UPDATE'), validate({ params: idParam, body: projectClientAssetUploadIntentSchema }), controller.createClientAssetUploadIntent);
+projectRouter.post('/:id/client-assets', requirePermission('PROJECT_UPDATE'), validate({ params: idParam, body: createProjectClientAssetSchema }), controller.createClientAsset);
+projectRouter.get('/:id/client-assets/:assetId/download-url', requireAnyPermission('PROJECT_VIEW', 'DATA_MANAGEMENT_VIEW'), validate({ params: projectClientAssetParams }), controller.clientAssetDownloadUrl);
+projectRouter.patch('/:id/client-assets/:assetId', requirePermission('PROJECT_UPDATE'), validate({ params: projectClientAssetParams, body: updateProjectClientAssetSchema }), controller.updateClientAsset);
+projectRouter.delete('/:id/client-assets/:assetId', requirePermission('PROJECT_UPDATE'), validate({ params: projectClientAssetParams }), controller.deleteClientAsset);
 projectRouter.get(
   '/:id',
   requireAnyPermission('PROJECT_VIEW', 'DATA_MANAGEMENT_VIEW'),

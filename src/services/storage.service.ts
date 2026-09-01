@@ -1,4 +1,5 @@
 import crypto from 'crypto';
+import path from 'path';
 import { StorageProvider } from '@prisma/client';
 import { env } from '../config/env';
 
@@ -58,4 +59,20 @@ export function createSignedUrl(objectKey: string, bucket: string): SignedUrl {
     env.STORAGE_ENDPOINT ||
     `https://${bucket}.s3.${env.STORAGE_REGION ?? 'ap-south-1'}.amazonaws.com`;
   return { url: `${base}/${objectKey}`, expiresAt, provider };
+}
+
+/** Validates the short-lived URLs used by the local development storage driver. */
+export function verifyLocalSignedUrl(bucket: string, objectKey: string, expiresValue: unknown, signatureValue: unknown): boolean {
+  const expires = typeof expiresValue === 'string' ? Number(expiresValue) : NaN;
+  const signature = typeof signatureValue === 'string' ? signatureValue : '';
+  if (!Number.isInteger(expires) || expires < Math.floor(Date.now() / 1000) || !/^[a-f0-9]{64}$/i.test(signature)) return false;
+  const expected = crypto.createHmac('sha256', env.JWT_SECRET).update(`${bucket}/${objectKey}:${expires}`).digest('hex');
+  return crypto.timingSafeEqual(Buffer.from(expected, 'hex'), Buffer.from(signature, 'hex'));
+}
+
+/** Keeps LOCAL uploads inside the backend working directory and prevents path traversal. */
+export function localObjectPath(objectKey: string): string | null {
+  const root = path.resolve(process.cwd(), '.local-storage');
+  const target = path.resolve(root, objectKey);
+  return target.startsWith(`${root}${path.sep}`) ? target : null;
 }
