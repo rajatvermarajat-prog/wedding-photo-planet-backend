@@ -4,6 +4,7 @@ import path from 'path';
 import helmet from 'helmet';
 import cors from 'cors';
 import cookieParser from 'cookie-parser';
+import compression from 'compression';
 import pinoHttp from 'pino-http';
 import swaggerUi from 'swagger-ui-express';
 
@@ -40,6 +41,11 @@ export function createApp() {
   app.disable('x-powered-by');
 
   app.use(requestId);
+
+  // JSON list payloads are highly repetitive and compress an order of
+  // magnitude. Placed ahead of every route so API responses, the OpenAPI
+  // document and the Swagger UI assets all benefit.
+  app.use(compression());
 
   app.use(
     helmet({
