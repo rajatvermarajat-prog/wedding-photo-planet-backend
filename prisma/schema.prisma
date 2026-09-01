@@ -777,6 +777,22 @@ model EmployeeProfile {
   @@map("employee_profiles")
 }
 
+model StaffSalaryPayment {
+  id             String   @id @default(uuid()) @db.Uuid
+  organizationId String   @map("organization_id") @db.Uuid
+  userId         String   @map("user_id") @db.Uuid
+  paymentMonth   String   @map("payment_month") @db.VarChar(7)
+  baseSalary     Decimal  @map("base_salary") @db.Decimal(14, 2)
+  paidAmount     Decimal  @default(0) @map("paid_amount") @db.Decimal(14, 2)
+  notes          String?  @db.Text
+  installments   Json?    @db.JsonB
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+  @@unique([organizationId, userId, paymentMonth])
+  @@index([organizationId, paymentMonth])
+  @@map("staff_salary_payments")
+}
+
 // ===========================================================================
 // CRM — Lead > Qualified > Client > Project
 // ===========================================================================

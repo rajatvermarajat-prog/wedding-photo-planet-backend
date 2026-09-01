@@ -30,6 +30,8 @@ export const updateUser = asyncHandler(async (req, res) => {
   const user = await userService.updateUser(auth, req.params.id, req.body, auditContext(req));
   return sendSuccess(res, user);
 });
+export const listSalaryPayments = asyncHandler(async (req, res) => sendSuccess(res, await userService.listSalaryPayments(requireAuthContext(req).organizationId, typeof req.query.month === 'string' ? req.query.month : undefined)));
+export const upsertSalaryPayment = asyncHandler(async (req, res) => sendSuccess(res, await userService.upsertSalaryPayment(requireAuthContext(req), req.params.id, req.body)));
 
 export const setUserRoles = asyncHandler(async (req, res) => {
   const auth = requireAuthContext(req);

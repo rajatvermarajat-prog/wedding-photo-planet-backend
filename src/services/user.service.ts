@@ -1,4 +1,4 @@
-import { RoleStatus, UserStatus } from '@prisma/client';
+import { Prisma, RoleStatus, UserStatus } from '@prisma/client';
 import { prisma } from '../config/prisma';
 import { andWhere, findScoped, paginate, searchFilter } from '../repositories/base.repository';
 import { resolveSort } from '../utils/pagination';
@@ -28,6 +28,8 @@ const PUBLIC_SELECT = {
       id: true,
       employmentType: true,
       joiningDate: true,
+      monthlySalary: true,
+      dailyRate: true,
       workLocation: true,
       skills: true,
       department: { select: { id: true, name: true } },
@@ -254,6 +256,19 @@ export async function updateUser(
 
     return updated;
   });
+}
+
+export async function upsertSalaryPayment(auth: AuthContext, userId: string, input: { paymentMonth: string; baseSalary: number; paidAmount: number; notes?: string; installments?: unknown }) {
+  await findScoped(prisma.user, auth.organizationId, userId, 'User', { select: { id: true } });
+  return prisma.staffSalaryPayment.upsert({
+    where: { organizationId_userId_paymentMonth: { organizationId: auth.organizationId, userId, paymentMonth: input.paymentMonth } },
+    create: { organizationId: auth.organizationId, userId, paymentMonth: input.paymentMonth, baseSalary: input.baseSalary, paidAmount: input.paidAmount, notes: input.notes, installments: input.installments as Prisma.InputJsonValue },
+    update: { baseSalary: input.baseSalary, paidAmount: input.paidAmount, notes: input.notes, installments: input.installments as Prisma.InputJsonValue },
+  });
+}
+
+export function listSalaryPayments(organizationId: string, paymentMonth?: string) {
+  return prisma.staffSalaryPayment.findMany({ where: { organizationId, ...(paymentMonth ? { paymentMonth } : {}) }, orderBy: { updatedAt: 'desc' } });
 }
 
 export async function setUserRoles(
