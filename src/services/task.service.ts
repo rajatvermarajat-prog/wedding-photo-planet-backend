@@ -339,12 +339,12 @@ export async function deleteTask(auth: AuthContext, id: string, ctx: AuditReques
       id,
       'Task',
     );
-    await tx.task.update({ where: { id }, data: { deletedAt: new Date(), deletedBy: auth.userId } });
+    await tx.task.delete({ where: { id } });
     await recordAudit(tx, ctx, {
-      action: 'SOFT_DELETE',
+      action: 'DELETE',
       entityType: 'Task',
       entityId: id,
-      summary: `Task "${task.title}" archived`,
+      summary: `Task "${task.title}" permanently deleted`,
       oldData: task,
     });
   });

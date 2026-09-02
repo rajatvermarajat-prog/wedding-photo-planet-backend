@@ -167,15 +167,14 @@ export async function deleteShoot(auth: AuthContext, id: string, ctx: AuditReque
       id,
       'Shoot',
     );
-    await tx.shoot.update({
-      where: { id },
-      data: { deletedAt: new Date(), deletedBy: auth.userId },
-    });
+    // Shoot assignments are owned by the shoot and use the existing cascade
+    // relation, so deleting the parent cannot leave orphaned crew rows.
+    await tx.shoot.delete({ where: { id } });
     await recordAudit(tx, ctx, {
-      action: 'SOFT_DELETE',
+      action: 'DELETE',
       entityType: 'Shoot',
       entityId: id,
-      summary: `Shoot ${shoot.title} archived`,
+      summary: `Shoot ${shoot.title} permanently deleted`,
       oldData: shoot,
     });
   });
