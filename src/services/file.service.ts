@@ -5,6 +5,7 @@ import { notFound } from '../utils/errors';
 import { AuthContext } from '../types';
 import { AuditRequestContext, recordAudit } from './audit.service';
 import { buildObjectKey, createSignedUrl, getStorageProvider } from './storage.service';
+import { env } from '../config/env';
 
 export function listFiles(
   organizationId: string,
@@ -42,7 +43,7 @@ export function createUploadIntent(
   input: { entityType: string; originalName: string; mimeType: string },
 ) {
   const objectKey = buildObjectKey(auth.organizationId, input.entityType, input.originalName);
-  const bucket = process.env.STORAGE_BUCKET ?? 'wedding-photo-planet';
+  const bucket = env.STORAGE_BUCKET;
   const signed = createSignedUrl(objectKey, bucket);
 
   return {

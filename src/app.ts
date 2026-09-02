@@ -95,8 +95,7 @@ export function createApp() {
     return typeof key === 'string' ? key : '';
   };
   const localStorageAuthorized = (req: Request, objectKey: string) => {
-    const bucket = process.env.STORAGE_BUCKET ?? 'wedding-photo-planet';
-    return Boolean(objectKey) && verifyLocalSignedUrl(bucket, objectKey, req.query.expires, req.query.signature);
+    return Boolean(objectKey) && verifyLocalSignedUrl(env.STORAGE_BUCKET, objectKey, req.query.expires, req.query.signature);
   };
   app.put('/files/*', express.raw({ type: '*/*', limit: '50mb' }), async (req, res, next) => {
     if (env.STORAGE_PROVIDER !== 'LOCAL') return next();
