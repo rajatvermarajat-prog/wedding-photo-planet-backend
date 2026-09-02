@@ -1,10 +1,11 @@
 import { Prisma } from '@prisma/client';
+import { promises as fs } from 'fs';
 import { prisma } from '../config/prisma';
 import { notFound } from '../utils/errors';
 import { AuthContext } from '../types';
 import { AuditRequestContext, recordAudit } from './audit.service';
-import { createUploadIntent, deleteFile, registerFile } from './file.service';
-import { createSignedUrl } from './storage.service';
+import { createUploadIntent, registerFile } from './file.service';
+import { createSignedUrl, getStorageProvider, localObjectPath } from './storage.service';
 
 const ENTITY_TYPE = 'PROJECT_CLIENT_ASSET';
 
@@ -51,7 +52,28 @@ export async function deleteProjectClientAsset(auth: AuthContext, projectId: str
   await requireProject(auth.organizationId, projectId);
   const asset = await prisma.fileObject.findFirst({ where: { id: assetId, organizationId: auth.organizationId, projectId, entityType: ENTITY_TYPE, deletedAt: null } });
   if (!asset) throw notFound('Client asset');
-  await deleteFile(auth, assetId, ctx);
+
+  // Project-owned uploads are not reusable master data. An explicit removal
+  // permanently deletes both its metadata and LOCAL storage object.
+  if (getStorageProvider() === 'LOCAL') {
+    const target = localObjectPath(asset.objectKey);
+    if (target) {
+      try {
+        await fs.unlink(target);
+      } catch (error: unknown) {
+        if (!(error && typeof error === 'object' && 'code' in error && error.code === 'ENOENT')) throw error;
+      }
+    }
+  }
+
+  await prisma.$transaction(async (tx) => {
+    await tx.fileObject.delete({ where: { id: asset.id } });
+    await recordAudit(tx, ctx, {
+      action: 'DELETE', entityType: 'ProjectClientAsset', entityId: asset.id,
+      summary: `Client asset ${asset.originalName} permanently deleted`,
+      oldData: { objectKey: asset.objectKey, projectId },
+    });
+  });
 }
 
 export async function getProjectClientAssetDownloadUrl(organizationId: string, projectId: string, assetId: string) {
