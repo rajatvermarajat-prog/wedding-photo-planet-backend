@@ -37,9 +37,9 @@ export function createSignedUrl(objectKey: string, bucket: string): SignedUrl {
   const expiresAt = new Date(Date.now() + env.SIGNED_URL_TTL_SECONDS * 1000);
   const provider = getStorageProvider();
 
-  if (provider === 'LOCAL') {
-    // Development driver: an HMAC-signed local path, same contract as a
-    // presigned S3 URL so callers never branch on the provider.
+  if (provider === 'LOCAL' || provider === 'DATABASE') {
+    // LOCAL and DATABASE both expose a short-lived backend URL. LOCAL reads
+    // the development filesystem; DATABASE reads the FileObject bytea column.
     const expires = Math.floor(expiresAt.getTime() / 1000);
     const signature = crypto
       .createHmac('sha256', env.JWT_SECRET)
@@ -53,7 +53,7 @@ export function createSignedUrl(objectKey: string, bucket: string): SignedUrl {
     };
   }
 
-  // S3 / R2 / Supabase: swap in the provider SDK's presigner here.
+  // S3 / R2 / Supabase are not used by this deployment.
   const base =
     env.STORAGE_PUBLIC_BASE_URL ||
     env.STORAGE_ENDPOINT ||

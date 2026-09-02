@@ -26,7 +26,9 @@ Copy `.env.example` to `.env` and fill it in. **Never commit `.env`.**
 | `JSON_BODY_LIMIT` | | Default `1mb` |
 | `MAX_PAGE_SIZE` / `DEFAULT_PAGE_SIZE` | | Defaults 100 / 25 |
 | `LOG_LEVEL` | | Default `info` |
-| `STORAGE_*` | | `LOCAL` \| `S3` \| `R2` \| `SUPABASE` plus credentials |
+| `STORAGE_PROVIDER` | | `LOCAL` for development; `DATABASE` is required in production and stores document bytes in PostgreSQL |
+| `STORAGE_BUCKET` | | Logical namespace for FileObject keys |
+| `STORAGE_PUBLIC_BASE_URL` | production | Public deployed backend `/files` base URL used for signed document URLs |
 | `SIGNED_URL_TTL_SECONDS` | | Default 900 |
 | `SEED_*` | | Bootstrap only |
 | `SEED_DEMO_DATA` | | **Refused in production** |

@@ -155,7 +155,7 @@ export const listFiles = asyncHandler(async (req, res) => {
 
 export const createUploadIntent = asyncHandler(async (req, res) => {
   const auth = requireAuthContext(req);
-  return sendCreated(res, fileService.createUploadIntent(auth, req.body));
+  return sendCreated(res, await fileService.createUploadIntent(auth, req.body));
 });
 
 export const registerFile = asyncHandler(async (req, res) => {
