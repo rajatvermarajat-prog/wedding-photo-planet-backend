@@ -48,8 +48,8 @@ export function listShoots(organizationId: string, query: ShootListQuery) {
       event: { select: { id: true, name: true } },
       assignments: {
         include: {
-          user: { select: { id: true, fullName: true } },
-          freelancer: { select: { id: true, fullName: true, code: true } },
+          user: { select: { id: true, fullName: true, phone: true } },
+          freelancer: { select: { id: true, fullName: true, code: true, phone: true } },
         },
       },
     },
@@ -65,7 +65,7 @@ export function getShoot(organizationId: string, id: string) {
       assignments: {
         orderBy: { createdAt: 'asc' },
         include: {
-          user: { select: { id: true, fullName: true, email: true } },
+          user: { select: { id: true, fullName: true, email: true, phone: true } },
           freelancer: { select: { id: true, fullName: true, code: true, phone: true } },
           assignedBy: { select: { id: true, fullName: true } },
         },
