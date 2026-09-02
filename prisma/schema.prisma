@@ -350,6 +350,7 @@ enum LeaveStatus {
 
 enum StorageProvider {
   LOCAL
+  DATABASE
   S3
   R2
   SUPABASE
@@ -1895,6 +1896,8 @@ model FileObject {
   originalName   String          @map("original_name") @db.VarChar(255)
   mimeType       String          @map("mime_type") @db.VarChar(160)
   sizeBytes      BigInt          @map("size_bytes")
+  content        Bytes?          @map("content")
+  isRegistered   Boolean         @default(true) @map("is_registered")
   checksum       String?         @db.VarChar(128)
   visibility     FileVisibility  @default(PRIVATE)
   metadata       Json?           @db.JsonB

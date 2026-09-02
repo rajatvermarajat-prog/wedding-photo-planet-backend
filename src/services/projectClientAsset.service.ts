@@ -18,7 +18,7 @@ async function requireProject(organizationId: string, projectId: string) {
 export async function getProjectClientAssets(organizationId: string, projectId: string) {
   await requireProject(organizationId, projectId);
   return prisma.fileObject.findMany({
-    where: { organizationId, projectId, entityType: ENTITY_TYPE, deletedAt: null },
+    where: { organizationId, projectId, entityType: ENTITY_TYPE, isRegistered: true, deletedAt: null },
     orderBy: { createdAt: 'desc' },
     include: { uploadedBy: { select: { id: true, fullName: true } } },
   });
@@ -26,7 +26,7 @@ export async function getProjectClientAssets(organizationId: string, projectId: 
 
 export async function createProjectClientAssetUploadIntent(auth: AuthContext, projectId: string, input: { originalName: string; mimeType: string }) {
   await requireProject(auth.organizationId, projectId);
-  return createUploadIntent(auth, { ...input, entityType: ENTITY_TYPE });
+  return createUploadIntent(auth, { ...input, entityType: ENTITY_TYPE, projectId });
 }
 
 export async function createProjectClientAsset(auth: AuthContext, projectId: string, input: { bucket: string; objectKey: string; originalName: string; mimeType: string; sizeBytes: number; category?: string; title?: string; notes?: string }, ctx: AuditRequestContext) {

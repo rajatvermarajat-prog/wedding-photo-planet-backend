@@ -68,7 +68,7 @@ const schema = z.object({
 
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent']).default('info'),
 
-  STORAGE_PROVIDER: z.enum(['LOCAL', 'S3', 'R2', 'SUPABASE']).default('LOCAL'),
+  STORAGE_PROVIDER: z.enum(['LOCAL', 'DATABASE', 'S3', 'R2', 'SUPABASE']).default('LOCAL'),
   STORAGE_BUCKET: z.string().default('wedding-photo-planet'),
   STORAGE_REGION: z.string().optional(),
   STORAGE_ENDPOINT: z.string().optional(),
@@ -96,6 +96,12 @@ if (!parsed.success) {
 }
 
 const raw = parsed.data;
+if (raw.NODE_ENV === 'production' && raw.STORAGE_PROVIDER !== 'DATABASE') {
+  throw new Error('Production document storage requires STORAGE_PROVIDER=DATABASE; LOCAL storage is not persistent on serverless hosts.');
+}
+if (raw.NODE_ENV === 'production' && !raw.STORAGE_PUBLIC_BASE_URL) {
+  throw new Error('Production document storage requires STORAGE_PUBLIC_BASE_URL to generate signed file URLs for the deployed backend.');
+}
 if (onVercel && !/sslmode=/i.test(raw.DATABASE_URL)) {
   raw.DATABASE_URL += `${raw.DATABASE_URL.includes('?') ? '&' : '?'}sslmode=require`;
 }

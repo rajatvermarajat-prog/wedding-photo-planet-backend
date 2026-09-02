@@ -87,9 +87,8 @@ export function createApp() {
   app.use(express.urlencoded({ extended: true, limit: env.JSON_BODY_LIMIT }));
   app.use(cookieParser());
 
-  // LOCAL storage follows the same signed-URL contract as cloud storage. This
-  // makes receipt uploads genuinely durable during local development instead
-  // of leaving the browser with a temporary data URL.
+  // LOCAL storage is for development only. Production uses the same signed URL
+  // contract but persists binary content in PostgreSQL FileObject rows.
   const localObjectKey = (req: Request) => {
     const key = req.params[0];
     return typeof key === 'string' ? key : '';
@@ -98,11 +97,30 @@ export function createApp() {
     return Boolean(objectKey) && verifyLocalSignedUrl(env.STORAGE_BUCKET, objectKey, req.query.expires, req.query.signature);
   };
   app.put('/files/*', express.raw({ type: '*/*', limit: '50mb' }), async (req, res, next) => {
-    if (env.STORAGE_PROVIDER !== 'LOCAL') return next();
     const objectKey = localObjectKey(req);
-    const target = localObjectPath(objectKey);
-    if (!target || !localStorageAuthorized(req, objectKey)) return res.status(403).end();
+    if (!localStorageAuthorized(req, objectKey)) return res.status(403).end();
     if (!Buffer.isBuffer(req.body)) return res.status(400).end();
+    if (env.STORAGE_PROVIDER === 'DATABASE') {
+      try {
+        const result = await prisma.fileObject.updateMany({
+          where: {
+            bucket: env.STORAGE_BUCKET,
+            objectKey,
+            storageProvider: 'DATABASE',
+            isRegistered: false,
+            deletedAt: null,
+            content: null,
+          },
+          data: { content: Uint8Array.from(req.body) },
+        });
+        return result.count === 1 ? res.status(204).end() : res.status(404).end();
+      } catch (error) {
+        return next(error);
+      }
+    }
+    if (env.STORAGE_PROVIDER !== 'LOCAL') return next();
+    const target = localObjectPath(objectKey);
+    if (!target) return res.status(403).end();
     try {
       await fs.mkdir(path.dirname(target), { recursive: true });
       await fs.writeFile(target, req.body);
@@ -112,10 +130,32 @@ export function createApp() {
     }
   });
   app.get('/files/*', async (req, res, next) => {
-    if (env.STORAGE_PROVIDER !== 'LOCAL') return next();
     const objectKey = localObjectKey(req);
+    if (!localStorageAuthorized(req, objectKey)) return res.status(403).end();
+    if (env.STORAGE_PROVIDER === 'DATABASE') {
+      try {
+        const file = await prisma.fileObject.findFirst({
+          where: {
+            bucket: env.STORAGE_BUCKET,
+            objectKey,
+            storageProvider: 'DATABASE',
+            isRegistered: true,
+            deletedAt: null,
+            content: { not: null },
+          },
+          select: { content: true, mimeType: true, sizeBytes: true },
+        });
+        if (!file?.content) return res.status(404).end();
+        res.type(file.mimeType);
+        res.setHeader('Content-Length', file.sizeBytes.toString());
+        return res.send(file.content);
+      } catch (error) {
+        return next(error);
+      }
+    }
+    if (env.STORAGE_PROVIDER !== 'LOCAL') return next();
     const target = localObjectPath(objectKey);
-    if (!target || !localStorageAuthorized(req, objectKey)) return res.status(403).end();
+    if (!target) return res.status(403).end();
     try {
       await fs.access(target);
       return res.sendFile(target);
