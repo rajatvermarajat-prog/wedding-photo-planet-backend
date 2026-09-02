@@ -225,7 +225,7 @@ export async function changeTaskStatus(
       data: {
         status,
         startedAt: status === 'IN_PROGRESS' ? new Date() : undefined,
-        completedAt: status === 'COMPLETED' ? new Date() : status !== 'COMPLETED' ? null : undefined,
+        completedAt: status === 'COMPLETED' ? new Date() : null,
       },
     });
 
