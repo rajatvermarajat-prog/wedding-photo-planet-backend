@@ -214,7 +214,9 @@ export async function changeTaskStatus(
     );
 
     if (task.status === status) throw conflict(`Task is already ${status}`);
-    if (TERMINAL.includes(task.status)) {
+    // Completion is reversible: Project Deliveries is derived from completed
+    // tasks, so reopening one must be able to remove it from that view.
+    if (task.status === 'CANCELLED') {
       throw conflict(`A ${task.status.toLowerCase()} task cannot change status`);
     }
 
@@ -223,7 +225,7 @@ export async function changeTaskStatus(
       data: {
         status,
         startedAt: status === 'IN_PROGRESS' ? new Date() : undefined,
-        completedAt: status === 'COMPLETED' ? new Date() : undefined,
+        completedAt: status === 'COMPLETED' ? new Date() : status !== 'COMPLETED' ? null : undefined,
       },
     });
 
