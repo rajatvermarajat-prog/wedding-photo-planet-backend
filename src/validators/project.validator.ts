@@ -48,7 +48,7 @@ const embeddedEventSchema = z.object({
   notes: z.string().max(2000).optional(),
 });
 
-export const createProjectSchema = z.object({
+const projectInputSchema = z.object({
   clientId: uuid,
   leadId: uuid.optional(),
   branchId: uuid.optional(),
@@ -78,9 +78,26 @@ export const createProjectSchema = z.object({
     .optional(),
 });
 
-export const updateProjectSchema = createProjectSchema
+/** A custom label is required whenever the generic OTHER project type is used. */
+const requireCustomServiceForOther = (
+  value: { type?: z.infer<typeof PROJECT_TYPE>; customServiceType?: string },
+  ctx: z.RefinementCtx,
+) => {
+  if (value.type === 'OTHER' && !value.customServiceType?.trim()) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['customServiceType'],
+      message: 'Custom service type is required when project type is OTHER.',
+    });
+  }
+};
+
+export const createProjectSchema = projectInputSchema.superRefine(requireCustomServiceForOther);
+
+export const updateProjectSchema = projectInputSchema
   .partial()
-  .omit({ clientId: true, events: true, leadId: true, tasks: true });
+  .omit({ clientId: true, events: true, leadId: true, tasks: true })
+  .superRefine(requireCustomServiceForOther);
 
 export const projectStatusSchema = z.object({
   status: PROJECT_STATUS,
