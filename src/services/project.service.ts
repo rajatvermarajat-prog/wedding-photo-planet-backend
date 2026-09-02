@@ -1,9 +1,19 @@
-import { Prisma, ProjectStatus, ProjectType, TaskStatus } from '@prisma/client';
+import {
+  CrewRole,
+  Prisma,
+  ProjectStatus,
+  ProjectType,
+  ShootStatus,
+  ShootType,
+  TaskCategory,
+  TaskPriority,
+  TaskStatus,
+} from '@prisma/client';
 import { prisma } from '../config/prisma';
 import { andWhere, findScoped, paginate, searchFilter } from '../repositories/base.repository';
 import { resolveSort } from '../utils/pagination';
 import { nextDocumentNumber } from '../utils/documentNumber';
-import { badRequest, conflict, notFound } from '../utils/errors';
+import { badRequest, conflict, forbidden, notFound } from '../utils/errors';
 import { dateRangeFilter } from '../utils/date';
 import { AuthContext } from '../types';
 import { AuditRequestContext, recordAudit } from './audit.service';
@@ -24,6 +34,275 @@ const ALLOWED_TRANSITIONS: Record<ProjectStatus, ProjectStatus[]> = {
   COMPLETED: [],
   CANCELLED: [],
 };
+
+const PROJECT_TASK_INCLUDE = {
+  where: { deletedAt: null },
+  orderBy: { createdAt: 'asc' as const },
+  include: { assignee: { select: { id: true, fullName: true } } },
+};
+
+const PROJECT_SHOOT_INCLUDE = {
+  where: { deletedAt: null },
+  orderBy: { shootDate: 'asc' as const },
+  include: {
+    assignments: {
+      include: {
+        user: { select: { id: true, fullName: true, phone: true } },
+        freelancer: { select: { id: true, fullName: true, code: true, phone: true } },
+      },
+    },
+  },
+};
+
+const PROJECT_CREATE_INCLUDE = {
+  client: { select: { id: true, clientCode: true, displayName: true, primaryPhone: true } },
+  events: { where: { deletedAt: null }, orderBy: { eventDate: 'asc' as const } },
+  shoots: PROJECT_SHOOT_INCLUDE,
+  tasks: PROJECT_TASK_INCLUDE,
+};
+
+type Tx = Prisma.TransactionClient;
+
+async function loadCreatedProject(tx: Tx, organizationId: string, projectId: string) {
+  return findScoped<Record<string, unknown>>(tx.project, organizationId, projectId, 'Project', {
+    include: PROJECT_CREATE_INCLUDE,
+  });
+}
+
+function assertNestedCreatePermissions(auth: AuthContext, input: CreateProjectInput) {
+  if (input.tasks?.length && !auth.permissions.has('TASK_CREATE')) {
+    throw forbidden('TASK_CREATE permission is required to create project tasks.');
+  }
+  if (input.shoots?.length && !auth.permissions.has('SHOOT_CREATE')) {
+    throw forbidden('SHOOT_CREATE permission is required to create project shoots.');
+  }
+  if (input.shoots?.some((shoot) => (shoot.crewAssignments || []).length > 0) && !auth.permissions.has('SHOOT_ASSIGN')) {
+    throw forbidden('SHOOT_ASSIGN permission is required to assign project shoot crew.');
+  }
+}
+
+async function resolveProjectClient(
+  tx: Tx,
+  auth: AuthContext,
+  input: CreateProjectInput,
+  ctx: AuditRequestContext,
+): Promise<string> {
+  if (input.clientId) {
+    const client = await tx.client.findFirst({
+      where: { id: input.clientId, organizationId: auth.organizationId, deletedAt: null },
+      select: { id: true },
+    });
+    if (!client) throw notFound('Client');
+    return client.id;
+  }
+
+  const pendingClient = input.client;
+  if (!pendingClient) throw badRequest('Provide either clientId or client details.');
+
+  const phoneMatch = await tx.client.findFirst({
+    where: {
+      organizationId: auth.organizationId,
+      deletedAt: null,
+      primaryPhone: pendingClient.primaryPhone,
+    },
+    select: { id: true },
+  });
+  if (phoneMatch) return phoneMatch.id;
+
+  const nameMatch = await tx.client.findFirst({
+    where: {
+      organizationId: auth.organizationId,
+      deletedAt: null,
+      displayName: { equals: pendingClient.displayName, mode: 'insensitive' },
+    },
+    select: { id: true },
+  });
+  if (nameMatch) return nameMatch.id;
+
+  if (!auth.permissions.has('CLIENT_CREATE')) {
+    throw forbidden('CLIENT_CREATE permission is required to create a new client during project intake.');
+  }
+
+  const clientCode = await nextDocumentNumber(tx, auth.organizationId, 'CLIENT');
+  const created = await tx.client.create({
+    data: {
+      organizationId: auth.organizationId,
+      clientCode,
+      displayName: pendingClient.displayName,
+      primaryPhone: pendingClient.primaryPhone,
+      primaryEmail: pendingClient.primaryEmail?.toLowerCase(),
+    },
+  });
+
+  await recordAudit(tx, ctx, {
+    action: 'CREATE',
+    entityType: 'Client',
+    entityId: created.id,
+    summary: `Client ${clientCode} created during project intake`,
+    newData: created,
+  });
+
+  return created.id;
+}
+
+async function createProjectTasks(
+  tx: Tx,
+  auth: AuthContext,
+  projectId: string,
+  projectName: string,
+  clientId: string,
+  tasks: NonNullable<CreateProjectInput['tasks']>,
+) {
+  const assigneeIds = [...new Set(tasks.map((task) => task.assigneeId).filter((value): value is string => Boolean(value)))];
+  const validAssigneeIds = new Set<string>();
+  if (assigneeIds.length > 0) {
+    const users = await tx.user.findMany({
+      where: { id: { in: assigneeIds }, organizationId: auth.organizationId, deletedAt: null },
+      select: { id: true },
+    });
+    users.forEach((user) => validAssigneeIds.add(user.id));
+  }
+
+  const notified = new Set<string>();
+  for (const item of tasks) {
+    const assigneeId = item.assigneeId && validAssigneeIds.has(item.assigneeId) ? item.assigneeId : undefined;
+    const requestedStatus = item.status ?? (assigneeId ? TaskStatus.ASSIGNED : TaskStatus.TODO);
+    const status =
+      requestedStatus === TaskStatus.TODO && assigneeId ? TaskStatus.ASSIGNED
+        : requestedStatus === TaskStatus.ASSIGNED && !assigneeId ? TaskStatus.TODO
+        : requestedStatus;
+
+    const task = await tx.task.create({
+      data: {
+        organizationId: auth.organizationId,
+        projectId,
+        clientId,
+        title: item.title,
+        description: item.description,
+        category: item.category ?? TaskCategory.OTHER,
+        priority: item.priority ?? TaskPriority.MEDIUM,
+        quantity: item.quantity ?? 1,
+        unit: item.unit,
+        dueDate: item.dueDate,
+        status,
+        assigneeId,
+        createdById: auth.userId,
+        startedAt: status === TaskStatus.IN_PROGRESS ? new Date() : undefined,
+        completedAt: status === TaskStatus.COMPLETED ? new Date() : undefined,
+      },
+    });
+
+    await tx.taskStatusHistory.create({
+      data: {
+        taskId: task.id,
+        oldStatus: null,
+        newStatus: status,
+        changedById: auth.userId,
+        reason: 'Task created',
+      },
+    });
+
+    if (!assigneeId) continue;
+
+    await tx.taskAssignment.create({
+      data: {
+        taskId: task.id,
+        fromUserId: null,
+        toUserId: assigneeId,
+        assignedById: auth.userId,
+        reason: 'Assigned on project create',
+      },
+    });
+
+    if (notified.has(assigneeId)) continue;
+    notified.add(assigneeId);
+    await tx.notification.create({
+      data: {
+        organizationId: auth.organizationId,
+        userId: assigneeId,
+        type: 'TASK_ASSIGNED',
+        title: 'You were assigned to a project',
+        message: `${projectName}: ${item.title}`,
+        entityType: 'Project',
+        entityId: projectId,
+      },
+    });
+  }
+}
+
+async function createProjectShoots(
+  tx: Tx,
+  auth: AuthContext,
+  projectId: string,
+  shoots: NonNullable<CreateProjectInput['shoots']>,
+) {
+  const crewUserIds = [...new Set(
+    shoots.flatMap((shoot) => shoot.crewAssignments || []).map((assignment) => assignment.userId),
+  )];
+  const validUserIds = new Set<string>();
+  if (crewUserIds.length > 0) {
+    const users = await tx.user.findMany({
+      where: { id: { in: crewUserIds }, organizationId: auth.organizationId, deletedAt: null },
+      select: { id: true },
+    });
+    users.forEach((user) => validUserIds.add(user.id));
+  }
+
+  for (const [index, item] of shoots.entries()) {
+    if (item.startTime && item.endTime && item.endTime.getTime() <= item.startTime.getTime()) {
+      throw badRequest('A shoot end time must be later than its start time.', [
+        { field: `shoots.${index}.endTime`, message: 'Must be later than startTime' },
+      ]);
+    }
+
+    const status = item.status ?? ShootStatus.SCHEDULED;
+    const shoot = await tx.shoot.create({
+      data: {
+        organizationId: auth.organizationId,
+        projectId,
+        title: item.title,
+        shootType: item.shootType ?? ShootType.PHOTO_AND_VIDEO,
+        shootDate: item.shootDate,
+        startTime: item.startTime,
+        endTime: item.endTime,
+        location: item.location,
+        city: item.city,
+        notes: item.notes,
+        status,
+        createdById: auth.userId,
+        completedAt: status === ShootStatus.COMPLETED ? new Date() : undefined,
+      },
+    });
+
+    const seenUsers = new Set<string>();
+    for (const assignment of item.crewAssignments || []) {
+      if (!validUserIds.has(assignment.userId)) throw notFound('Team member');
+      if (seenUsers.has(assignment.userId)) throw conflict('This person is already assigned to this shoot');
+      seenUsers.add(assignment.userId);
+
+      await tx.shootAssignment.create({
+        data: {
+          shootId: shoot.id,
+          userId: assignment.userId,
+          role: assignment.role,
+          assignedById: auth.userId,
+        },
+      });
+
+      await tx.notification.create({
+        data: {
+          organizationId: auth.organizationId,
+          userId: assignment.userId,
+          type: 'SHOOT_ASSIGNED',
+          title: 'You have been assigned to a shoot',
+          message: `${shoot.title} — role ${assignment.role}`,
+          entityType: 'Shoot',
+          entityId: shoot.id,
+        },
+      });
+    }
+  }
+}
 
 export interface ProjectListQuery {
   page?: number;
@@ -60,6 +339,7 @@ export function listProjects(organizationId: string, query: ProjectListQuery) {
     include: {
       client: { select: { id: true, clientCode: true, displayName: true, primaryPhone: true } },
       manager: { select: { id: true, fullName: true } },
+      tasks: PROJECT_TASK_INCLUDE,
       _count: { select: { events: true, shoots: true, tasks: true, deliveries: true } },
     },
   });
@@ -73,23 +353,8 @@ export async function getProject(organizationId: string, id: string) {
       createdBy: { select: { id: true, fullName: true } },
       branch: { select: { id: true, name: true, code: true } },
       events: { where: { deletedAt: null }, orderBy: { eventDate: 'asc' } },
-      shoots: {
-        where: { deletedAt: null },
-        orderBy: { shootDate: 'asc' },
-        include: {
-          assignments: {
-            include: {
-              user: { select: { id: true, fullName: true } },
-              freelancer: { select: { id: true, fullName: true, code: true } },
-            },
-          },
-        },
-      },
-      tasks: {
-        where: { deletedAt: null },
-        orderBy: { createdAt: 'asc' },
-        include: { assignee: { select: { id: true, fullName: true } } },
-      },
+      shoots: PROJECT_SHOOT_INCLUDE,
+      tasks: PROJECT_TASK_INCLUDE,
       payments: {
         orderBy: { paymentDate: 'desc' },
       },
@@ -160,11 +425,17 @@ export function listPaymentMilestones(organizationId: string, projectId: string)
 }
 
 export interface CreateProjectInput {
-  clientId: string;
+  clientId?: string;
+  client?: {
+    displayName: string;
+    primaryPhone: string;
+    primaryEmail?: string;
+  };
   leadId?: string;
   branchId?: string;
   name: string;
   type?: ProjectType;
+  status?: ProjectStatus;
   weddingDate?: Date;
   deliveryDueDate?: Date;
   venueName?: string;
@@ -188,9 +459,29 @@ export interface CreateProjectInput {
   }>;
   tasks?: Array<{
     title: string;
+    description?: string;
+    category?: TaskCategory;
+    priority?: TaskPriority;
     quantity?: number;
     unit?: string;
+    dueDate?: Date;
     assigneeId?: string;
+    status?: TaskStatus;
+  }>;
+  shoots?: Array<{
+    title: string;
+    shootType?: ShootType;
+    shootDate: Date;
+    startTime?: Date;
+    endTime?: Date;
+    location?: string;
+    city?: string;
+    notes?: string;
+    status?: ShootStatus;
+    crewAssignments?: Array<{
+      userId: string;
+      role: CrewRole;
+    }>;
   }>;
 }
 
@@ -205,11 +496,8 @@ export async function createProject(
   ctx: AuditRequestContext,
 ) {
   return prisma.$transaction(async (tx) => {
-    const client = await tx.client.findFirst({
-      where: { id: input.clientId, organizationId: auth.organizationId, deletedAt: null },
-      select: { id: true },
-    });
-    if (!client) throw notFound('Client');
+    assertNestedCreatePermissions(auth, input);
+    const clientId = await resolveProjectClient(tx, auth, input, ctx);
 
     if (input.branchId) {
       const branch = await tx.branch.findFirst({
@@ -225,12 +513,12 @@ export async function createProject(
       data: {
         organizationId: auth.organizationId,
         branchId: input.branchId,
-        clientId: input.clientId,
+        clientId,
         leadId: input.leadId,
         projectNumber,
         name: input.name,
         type: input.type ?? 'WEDDING',
-        status: ProjectStatus.LEAD,
+        status: input.status ?? ProjectStatus.LEAD,
         weddingDate: input.weddingDate,
         deliveryDueDate: input.deliveryDueDate,
         venueName: input.venueName,
@@ -242,6 +530,8 @@ export async function createProject(
         notes: input.notes,
         managerId: input.managerId,
         createdById: auth.userId,
+        completedAt: input.status === ProjectStatus.COMPLETED ? new Date() : undefined,
+        cancelledAt: input.status === ProjectStatus.CANCELLED ? new Date() : undefined,
         events: input.events?.length
           ? {
               createMany: {
@@ -261,78 +551,32 @@ export async function createProject(
             }
           : undefined,
       },
-      include: { events: true, client: { select: { displayName: true } } },
     });
 
     await tx.projectStatusHistory.create({
       data: {
         projectId: project.id,
         oldStatus: null,
-        newStatus: ProjectStatus.LEAD,
+        newStatus: input.status ?? ProjectStatus.LEAD,
         changedById: auth.userId,
         reason: 'Project created',
       },
     });
 
-    const notified = new Set<string>();
-    for (const item of input.tasks ?? []) {
-      let assigneeId = item.assigneeId;
-      if (assigneeId) {
-        const assignee = await tx.user.findFirst({
-          where: { id: assigneeId, organizationId: auth.organizationId, deletedAt: null },
-          select: { id: true },
-        });
-        if (!assignee) assigneeId = undefined;
-      }
+    if (input.tasks?.length) await createProjectTasks(tx, auth, project.id, project.name, clientId, input.tasks);
+    if (input.shoots?.length) await createProjectShoots(tx, auth, project.id, input.shoots);
 
-      const task = await tx.task.create({
-        data: {
-          organizationId: auth.organizationId,
-          projectId: project.id,
-          clientId: input.clientId,
-          title: item.title,
-          quantity: item.quantity ?? 1,
-          unit: item.unit,
-          status: assigneeId ? TaskStatus.ASSIGNED : TaskStatus.TODO,
-          assigneeId,
-          createdById: auth.userId,
-        },
-      });
-
-      if (!assigneeId) continue;
-      await tx.taskAssignment.create({
-        data: {
-          taskId: task.id,
-          fromUserId: null,
-          toUserId: assigneeId,
-          assignedById: auth.userId,
-          reason: 'Assigned on project create',
-        },
-      });
-      if (notified.has(assigneeId)) continue;
-      notified.add(assigneeId);
-      await tx.notification.create({
-        data: {
-          organizationId: auth.organizationId,
-          userId: assigneeId,
-          type: 'TASK_ASSIGNED',
-          title: 'You were assigned to a project',
-          message: `${project.name}: ${item.title}`,
-          entityType: 'Project',
-          entityId: project.id,
-        },
-      });
-    }
+    const createdProject = await loadCreatedProject(tx, auth.organizationId, project.id);
 
     await recordAudit(tx, ctx, {
       action: 'CREATE',
       entityType: 'Project',
       entityId: project.id,
       summary: `Project ${project.projectNumber} created`,
-      newData: project,
+      newData: createdProject,
     });
 
-    return project;
+    return createdProject;
   });
 }
 
@@ -548,4 +792,3 @@ export async function updateProjectDeliveries(
     return updated;
   });
 }
-

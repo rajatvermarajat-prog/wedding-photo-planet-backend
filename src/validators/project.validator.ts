@@ -28,6 +28,72 @@ export const PROJECT_TYPE = z.enum([
 
 const toDate = dateOnly.transform((v) => new Date(`${v}T00:00:00Z`));
 
+const embeddedProjectClientSchema = z.object({
+  displayName: z.string().trim().min(1).max(160),
+  primaryPhone: z.string().regex(/^[6-9][0-9]{9}$/, 'Must be a valid 10-digit Indian mobile number starting with 6, 7, 8, or 9'),
+  primaryEmail: z.string().email().max(160).toLowerCase().optional(),
+});
+
+const embeddedProjectTaskStatus = z.enum([
+  'TODO',
+  'ASSIGNED',
+  'IN_PROGRESS',
+  'PAUSED',
+  'IN_REVIEW',
+  'COMPLETED',
+  'CANCELLED',
+]);
+
+const embeddedProjectTaskPriority = z.enum(['LOW', 'MEDIUM', 'HIGH', 'URGENT']);
+
+const embeddedProjectTaskCategory = z.enum([
+  'PHOTO_EDITING',
+  'VIDEO_EDITING',
+  'CULLING',
+  'COLOR_GRADING',
+  'ALBUM_DESIGN',
+  'ALBUM_PRINTING',
+  'SHOOT_COVERAGE',
+  'DATA_BACKUP',
+  'CLIENT_MEETING',
+  'DELIVERY',
+  'ADMIN',
+  'OTHER',
+]);
+
+const embeddedProjectShootStatus = z.enum([
+  'SCHEDULED',
+  'IN_PROGRESS',
+  'COMPLETED',
+  'CANCELLED',
+  'POSTPONED',
+]);
+
+const embeddedProjectShootType = z.enum([
+  'PHOTO',
+  'VIDEO',
+  'PHOTO_AND_VIDEO',
+  'DRONE',
+  'CANDID',
+  'TRADITIONAL',
+  'PRE_WEDDING',
+  'OTHER',
+]);
+
+const embeddedProjectCrewRole = z.enum([
+  'LEAD_PHOTOGRAPHER',
+  'CANDID_PHOTOGRAPHER',
+  'TRADITIONAL_PHOTOGRAPHER',
+  'CINEMATOGRAPHER',
+  'TRADITIONAL_VIDEOGRAPHER',
+  'DRONE_OPERATOR',
+  'ASSISTANT',
+  'LIGHT_ASSISTANT',
+  'LIVE_EDITOR',
+  'COORDINATOR',
+  'OTHER',
+]);
+
 export const projectListQuery = listQuery.extend({
   status: PROJECT_STATUS.optional(),
   type: PROJECT_TYPE.optional(),
@@ -48,12 +114,30 @@ const embeddedEventSchema = z.object({
   notes: z.string().max(2000).optional(),
 });
 
+const embeddedProjectShootSchema = z.object({
+  title: z.string().trim().min(1).max(160),
+  shootType: embeddedProjectShootType.optional(),
+  shootDate: toDate,
+  startTime: isoDateTime.optional(),
+  endTime: isoDateTime.optional(),
+  location: z.string().max(255).optional(),
+  city: z.string().max(80).optional(),
+  notes: z.string().max(5000).optional(),
+  status: embeddedProjectShootStatus.optional(),
+  crewAssignments: z.array(z.object({
+    userId: uuid,
+    role: embeddedProjectCrewRole,
+  })).max(30).optional(),
+});
+
 const projectInputSchema = z.object({
-  clientId: uuid,
+  clientId: uuid.optional(),
+  client: embeddedProjectClientSchema.optional(),
   leadId: uuid.optional(),
   branchId: uuid.optional(),
   name: z.string().trim().min(1).max(200),
   type: PROJECT_TYPE.optional(),
+  status: PROJECT_STATUS.optional(),
   weddingDate: toDate.optional(),
   deliveryDueDate: toDate.optional(),
   venueName: z.string().max(200).optional(),
@@ -69,13 +153,19 @@ const projectInputSchema = z.object({
     .array(
       z.object({
         title: z.string().trim().min(1).max(200),
+        description: z.string().max(5000).optional(),
+        category: embeddedProjectTaskCategory.optional(),
+        priority: embeddedProjectTaskPriority.optional(),
         quantity: z.coerce.number().int().min(1).max(100000).optional(),
         unit: z.string().max(32).optional(),
+        dueDate: toDate.optional(),
         assigneeId: uuid.optional(),
+        status: embeddedProjectTaskStatus.optional(),
       }),
     )
     .max(50)
     .optional(),
+  shoots: z.array(embeddedProjectShootSchema).max(30).optional(),
 });
 
 /** A custom label is required whenever the generic OTHER project type is used. */
@@ -92,11 +182,34 @@ const requireCustomServiceForOther = (
   }
 };
 
-export const createProjectSchema = projectInputSchema.superRefine(requireCustomServiceForOther);
+const requireClientReference = (
+  value: { clientId?: string; client?: z.infer<typeof embeddedProjectClientSchema> },
+  ctx: z.RefinementCtx,
+) => {
+  if (!value.clientId && !value.client) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['clientId'],
+      message: 'Provide either clientId or client details.',
+    });
+  }
+  if (value.clientId && value.client) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['client'],
+      message: 'Provide either clientId or client details, not both.',
+    });
+  }
+};
+
+export const createProjectSchema = projectInputSchema.superRefine((value, ctx) => {
+  requireClientReference(value, ctx);
+  requireCustomServiceForOther(value, ctx);
+});
 
 export const updateProjectSchema = projectInputSchema
   .partial()
-  .omit({ clientId: true, events: true, leadId: true, tasks: true })
+  .omit({ clientId: true, client: true, events: true, leadId: true, tasks: true, shoots: true, status: true })
   .superRefine(requireCustomServiceForOther);
 
 export const projectStatusSchema = z.object({

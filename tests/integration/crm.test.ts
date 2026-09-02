@@ -64,6 +64,51 @@ describe('CRM: clients, projects, events, shoots', () => {
     expect(history[0].newStatus).toBe('LEAD');
   });
 
+  it('creates client, tasks, shoots and assignees in one project request', async () => {
+    const response = await authed(token)
+      .post(`${base}/projects`)
+      .send({
+        client: { displayName: 'Aarav & Diya', primaryPhone: '9812345678' },
+        name: 'Aarav & Diya — Wedding',
+        type: 'WEDDING',
+        status: 'CONFIRMED',
+        weddingDate: '2026-12-14',
+        totalQuotation: '450000.00',
+        tasks: [
+          {
+            title: 'Cinematic Teaser',
+            description: 'Deliver the opening teaser',
+            assigneeId: org.member.id,
+            status: 'ASSIGNED',
+          },
+        ],
+        shoots: [
+          {
+            title: 'Wedding Day Coverage',
+            shootDate: '2026-12-14',
+            status: 'SCHEDULED',
+            crewAssignments: [{ userId: org.member.id, role: 'LEAD_PHOTOGRAPHER' }],
+          },
+        ],
+      })
+      .expect(201);
+
+    expect(response.body.data.client.displayName).toBe('Aarav & Diya');
+    expect(response.body.data.client.primaryPhone).toBe('9812345678');
+    expect(response.body.data.status).toBe('CONFIRMED');
+    expect(response.body.data.tasks).toHaveLength(1);
+    expect(response.body.data.tasks[0].assignee.id).toBe(org.member.id);
+    expect(response.body.data.tasks[0].assignee.fullName).toBe('Member User');
+    expect(response.body.data.shoots).toHaveLength(1);
+    expect(response.body.data.shoots[0].assignments).toHaveLength(1);
+    expect(response.body.data.shoots[0].assignments[0].user.id).toBe(org.member.id);
+
+    const list = await authed(token).get(`${base}/projects?page=1&limit=10`).expect(200);
+    expect(list.body.data).toHaveLength(1);
+    expect(list.body.data[0].tasks).toHaveLength(1);
+    expect(list.body.data[0].tasks[0].assignee.fullName).toBe('Member User');
+  });
+
   it('rolls the whole project creation back when the client does not exist', async () => {
     const before = await prisma.project.count();
     const response = await authed(token)
