@@ -85,7 +85,7 @@ export interface CreateShootInput {
   location?: string;
   city?: string;
   notes?: string;
-  plannedRoleSlots?: Array<{ role: string; requiredCount: number; name?: string; mobile?: string }>;
+  plannedRoleSlots?: Array<{ role: string; requiredCount: number; name?: string; mobile?: string; dataReceived?: boolean; dataSizeGb?: Prisma.Decimal.Value; copyInHD?: string; backupInHD?: string }>;
 }
 
 export async function createShoot(auth: AuthContext, input: CreateShootInput, ctx: AuditRequestContext) {

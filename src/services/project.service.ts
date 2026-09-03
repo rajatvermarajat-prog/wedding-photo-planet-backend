@@ -25,8 +25,9 @@ const SORTABLE = ['createdAt', 'weddingDate', 'name', 'projectNumber', 'totalQuo
  * COMPLETED, and terminal states are terminal.
  */
 const ALLOWED_TRANSITIONS: Record<ProjectStatus, ProjectStatus[]> = {
+  UPCOMING: ['CONFIRMED', 'CANCELLED'],
   LEAD: ['CONFIRMED', 'CANCELLED'],
-  CONFIRMED: ['PLANNING', 'SHOOTING', 'CANCELLED'],
+  CONFIRMED: ['UPCOMING', 'PLANNING', 'SHOOTING', 'CANCELLED'],
   PLANNING: ['SHOOTING', 'CANCELLED'],
   SHOOTING: ['EDITING', 'CANCELLED'],
   EDITING: ['DELIVERY', 'CANCELLED'],
@@ -523,7 +524,7 @@ export async function createProject(
         projectNumber,
         name: input.name,
         type: input.type ?? 'WEDDING',
-        status: input.status ?? ProjectStatus.LEAD,
+        status: input.status ?? ProjectStatus.UPCOMING,
         isUrgent: input.isUrgent ?? false,
         weddingDate: input.weddingDate,
         deliveryDueDate: input.deliveryDueDate,
@@ -563,7 +564,7 @@ export async function createProject(
       data: {
         projectId: project.id,
         oldStatus: null,
-        newStatus: input.status ?? ProjectStatus.LEAD,
+        newStatus: input.status ?? ProjectStatus.UPCOMING,
         changedById: auth.userId,
         reason: 'Project created',
       },

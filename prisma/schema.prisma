@@ -123,6 +123,7 @@ enum AddressType {
 }
 
 enum ProjectStatus {
+  UPCOMING
   LEAD
   CONFIRMED
   PLANNING
@@ -1002,7 +1003,7 @@ model Project {
   projectNumber   String        @map("project_number") @db.VarChar(32)
   name            String        @db.VarChar(200)
   type            ProjectType   @default(WEDDING)
-  status          ProjectStatus @default(LEAD)
+  status          ProjectStatus @default(UPCOMING)
   isUrgent        Boolean       @default(false) @map("is_urgent")
   weddingDate     DateTime?     @map("wedding_date") @db.Date
   deliveryDueDate DateTime?     @map("delivery_due_date") @db.Date

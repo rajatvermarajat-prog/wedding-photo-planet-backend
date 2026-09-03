@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { dateOnly, isoDateTime, listQuery, nonNegativeDecimal, uuid } from './common.validator';
 
 export const PROJECT_STATUS = z.enum([
+  'UPCOMING',
   'LEAD',
   'CONFIRMED',
   'PLANNING',
@@ -313,6 +314,17 @@ export const shootListQuery = listQuery.extend({
   freelancerId: uuid.optional(),
 });
 
+const plannedRoleSlotSchema = z.object({
+  role: z.string().trim().min(1).max(80),
+  requiredCount: z.coerce.number().int().min(1).max(100),
+  name: z.string().trim().max(160).optional(),
+  mobile: z.string().trim().max(30).optional(),
+  dataReceived: z.boolean().optional(),
+  dataSizeGb: nonNegativeDecimal.optional(),
+  copyInHD: z.string().max(160).optional(),
+  backupInHD: z.string().max(2000).optional(),
+});
+
 export const createShootSchema = z.object({
   projectId: uuid,
   eventId: uuid.optional(),
@@ -324,7 +336,7 @@ export const createShootSchema = z.object({
   location: z.string().max(255).optional(),
   city: z.string().max(80).optional(),
   notes: z.string().max(5000).optional(),
-  plannedRoleSlots: z.array(z.object({ role: z.string().trim().min(1).max(80), requiredCount: z.coerce.number().int().min(1).max(100), name: z.string().trim().max(160).optional(), mobile: z.string().trim().max(30).optional() })).max(30).optional(),
+  plannedRoleSlots: z.array(plannedRoleSlotSchema).max(30).optional(),
 });
 
 export const updateShootSchema = createShootSchema
