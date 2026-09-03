@@ -125,7 +125,7 @@ const embeddedProjectShootSchema = z.object({
   city: z.string().max(80).optional(),
   notes: z.string().max(5000).optional(),
   status: embeddedProjectShootStatus.optional(),
-  plannedRoleSlots: z.array(z.object({ role: z.string().trim().min(1).max(80), requiredCount: z.coerce.number().int().min(1).max(100) })).max(30).optional(),
+  plannedRoleSlots: z.array(z.object({ role: z.string().trim().min(1).max(80), requiredCount: z.coerce.number().int().min(1).max(100), name: z.string().trim().max(160).optional(), mobile: z.string().trim().max(30).optional() })).max(30).optional(),
   crewAssignments: z.array(z.object({
     userId: uuid,
     role: embeddedProjectCrewRole,
@@ -324,7 +324,7 @@ export const createShootSchema = z.object({
   location: z.string().max(255).optional(),
   city: z.string().max(80).optional(),
   notes: z.string().max(5000).optional(),
-  plannedRoleSlots: z.array(z.object({ role: z.string().trim().min(1).max(80), requiredCount: z.coerce.number().int().min(1).max(100) })).max(30).optional(),
+  plannedRoleSlots: z.array(z.object({ role: z.string().trim().min(1).max(80), requiredCount: z.coerce.number().int().min(1).max(100), name: z.string().trim().max(160).optional(), mobile: z.string().trim().max(30).optional() })).max(30).optional(),
 });
 
 export const updateShootSchema = createShootSchema
