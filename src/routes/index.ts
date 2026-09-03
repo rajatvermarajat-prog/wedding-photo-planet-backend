@@ -4,7 +4,7 @@ import authRoutes from './auth.routes';
 import { clientRouter, leadRouter } from './crm.routes';
 import { dashboardRouter } from './dashboard.routes';
 import { eventRouter, projectRouter, shootRouter } from './project.routes';
-import { expenseRouter, invoiceRouter, paymentRouter, quotationRouter } from './finance.routes';
+import { expenseRouter, financeRouter, incomeRouter, invoiceRouter, paymentRouter, quotationRouter } from './finance.routes';
 import { attendanceRouter, deliveryRouter, freelancerRouter, personalNoteRouter, personalTodoRouter, taskRouter } from './ops.routes';
 import {
   auditRouter,
@@ -55,6 +55,8 @@ router.use('/quotations', quotationRouter);
 router.use('/invoices', invoiceRouter);
 router.use('/payments', paymentRouter);
 router.use('/expenses', expenseRouter);
+router.use('/incomes', incomeRouter);
+router.use('/finance', financeRouter);
 
 router.use('/files', fileRouter);
 router.use('/notifications', notificationRouter);
