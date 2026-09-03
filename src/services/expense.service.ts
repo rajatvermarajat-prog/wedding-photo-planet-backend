@@ -4,11 +4,13 @@ import { andWhere, findScoped, paginate, searchFilter } from '../repositories/ba
 import { resolveSort } from '../utils/pagination';
 import { badRequest, conflict, notFound } from '../utils/errors';
 import { dateRangeFilter, toDateOnly } from '../utils/date';
+import { startOfMonth } from '../utils/date';
 import { money, round2, ZERO } from '../utils/money';
 import { AuthContext } from '../types';
 import { AuditRequestContext, recordAudit } from './audit.service';
 
 const SORTABLE = ['expenseDate', 'createdAt', 'amount'] as const;
+export function withPaymentStatus<T extends { amount: Prisma.Decimal; paidAmount: Prisma.Decimal }>(expense: T) { const amount = Number(expense.amount); const paid = Number(expense.paidAmount); return { ...expense, paymentStatus: paid >= amount ? 'Paid' : paid > 0 ? 'Partial' : 'Unpaid' }; }
 
 export interface ExpenseListQuery {
   page?: number;
@@ -52,6 +54,7 @@ export function listExpenses(organizationId: string, query: ExpenseListQuery) {
       project: { select: { id: true, projectNumber: true, name: true } },
       createdBy: { select: { id: true, fullName: true } },
       approvedBy: { select: { id: true, fullName: true } },
+      payments: true,
     },
   });
 }
@@ -66,6 +69,7 @@ export function getExpense(organizationId: string, id: string) {
       attachments: { include: { file: true } },
       createdBy: { select: { id: true, fullName: true } },
       approvedBy: { select: { id: true, fullName: true } },
+      payments: { orderBy: { paidAt: 'desc' } },
     },
   });
 }
@@ -73,6 +77,8 @@ export function getExpense(organizationId: string, id: string) {
 export interface CreateExpenseInput {
   categoryId: string;
   amount: Prisma.Decimal.Value;
+  subcategory?: string;
+  paidAmount?: Prisma.Decimal.Value;
   expenseDate: string;
   projectId?: string;
   shootId?: string;
@@ -117,7 +123,7 @@ export async function createExpense(
         shootId: input.shootId,
         freelancerId: input.freelancerId,
         categoryId: input.categoryId,
-        amount: round2(money(input.amount)),
+        amount: round2(money(input.amount)), subcategory: input.subcategory, paidAmount: round2(money(input.paidAmount ?? 0)),
         taxAmount: round2(money(input.taxAmount ?? 0)),
         expenseDate: toDateOnly(input.expenseDate),
         vendor: input.vendor,
@@ -128,7 +134,7 @@ export async function createExpense(
           : ExpenseApprovalStatus.DRAFT,
         createdById: auth.userId,
       },
-      include: { category: { select: { name: true } } },
+      include: { category: { select: { name: true } }, payments: true },
     });
 
     await recordAudit(tx, ctx, {
@@ -166,7 +172,7 @@ export async function updateExpense(
       where: { id },
       data: {
         categoryId: input.categoryId,
-        amount: input.amount === undefined ? undefined : round2(money(input.amount)),
+        amount: input.amount === undefined ? undefined : round2(money(input.amount)), subcategory: input.subcategory,
         taxAmount: input.taxAmount === undefined ? undefined : round2(money(input.taxAmount)),
         expenseDate: input.expenseDate ? toDateOnly(input.expenseDate) : undefined,
         projectId: input.projectId,
@@ -296,6 +302,10 @@ export async function deleteExpense(auth: AuthContext, id: string, ctx: AuditReq
   });
 }
 
+export async function addExpensePayment(auth: AuthContext, id: string, input: { amount: Prisma.Decimal.Value; paidAt: string; method?: PaymentMethod; note?: string }, ctx: AuditRequestContext) {
+  return prisma.$transaction(async tx => { const expense = await findScoped<{ id: string; amount: Prisma.Decimal }>(tx.expense, auth.organizationId, id, 'Expense'); const payment = await tx.expensePayment.create({ data: { expenseId: id, amount: round2(money(input.amount)), paidAt: toDateOnly(input.paidAt), method: input.method ?? 'CASH', note: input.note } }); const total = await tx.expensePayment.aggregate({ where: { expenseId: id }, _sum: { amount: true } }); if (Number(total._sum.amount ?? 0) > Number(expense.amount)) throw badRequest('Payment total cannot exceed expense amount'); const updated = await tx.expense.update({ where: { id }, data: { paidAmount: total._sum.amount ?? 0 }, include: { payments: true } }); await recordAudit(tx, ctx, { action: 'CREATE', entityType: 'ExpensePayment', entityId: payment.id, summary: 'Expense payment recorded', newData: payment }); return withPaymentStatus(updated); });
+}
+
 export function listExpenseCategories(organizationId: string) {
   return prisma.expenseCategory.findMany({
     where: { organizationId, isActive: true },
@@ -308,4 +318,14 @@ export function createExpenseCategory(
   input: { name: string; description?: string },
 ) {
   return prisma.expenseCategory.create({ data: { organizationId, ...input } });
+}
+
+export async function summary(organizationId: string) {
+  const now = new Date(); const month = startOfMonth(now); const year = new Date(Date.UTC(now.getUTCFullYear(), 0, 1)); const where = { organizationId, deletedAt: null };
+  const [monthTotal, yearTotal, categories] = await prisma.$transaction([
+    prisma.expense.aggregate({ where: { ...where, expenseDate: { gte: month } }, _sum: { amount: true }, _count: true }),
+    prisma.expense.aggregate({ where: { ...where, expenseDate: { gte: year } }, _sum: { amount: true }, _count: true }),
+    prisma.expense.groupBy({ by: ['categoryId'], orderBy: { categoryId: 'asc' }, where: { ...where, expenseDate: { gte: month } }, _sum: { amount: true }, _count: true }),
+  ]);
+  return { month: { total: monthTotal._sum.amount ?? 0, count: monthTotal._count }, year: { total: yearTotal._sum.amount ?? 0, count: yearTotal._count }, categories };
 }

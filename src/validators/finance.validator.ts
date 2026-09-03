@@ -112,6 +112,8 @@ export const paymentListQuery = listQuery.extend({
 const allocationSchema = z.object({
   invoiceId: uuid,
   amount: positiveDecimal,
+  subcategory: z.string().trim().max(160).optional(),
+  paidAmount: nonNegativeDecimal.optional(),
 });
 
 export const createPaymentSchema = z.object({
@@ -161,6 +163,7 @@ export const createExpenseSchema = z.object({
 });
 
 export const updateExpenseSchema = createExpenseSchema.partial();
+export const createExpensePaymentSchema = z.object({ amount: positiveDecimal, paidAt: dateOnly, method: PAYMENT_METHOD.optional(), note: z.string().max(5000).optional() });
 
 export const reviewExpenseSchema = z
   .object({
@@ -176,3 +179,18 @@ export const expenseCategorySchema = z.object({
   name: z.string().trim().min(1).max(80),
   description: z.string().max(255).optional(),
 });
+
+export const INCOME_CATEGORY = z.enum(['CLIENT_PAYMENT', 'ADVANCE', 'ALBUM_SALES', 'REFERRAL', 'OTHER']);
+export const incomeListQuery = listQuery.extend({ projectId: uuid.optional(), category: INCOME_CATEGORY.optional() });
+export const createIncomeSchema = z.object({
+  amount: positiveDecimal,
+  date: dateOnly,
+  category: INCOME_CATEGORY,
+  projectId: uuid.optional(),
+  client: z.string().trim().max(160).optional(),
+  source: z.string().trim().max(160).optional(),
+  paymentMethod: PAYMENT_METHOD.optional(),
+  notes: z.string().max(5000).optional(),
+  addedBy: z.string().trim().max(160).optional(),
+});
+export const updateIncomeSchema = createIncomeSchema.partial();

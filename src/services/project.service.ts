@@ -700,20 +700,16 @@ export async function deleteProject(auth: AuthContext, id: string, ctx: AuditReq
       'Project',
     );
 
-    // Archiving only soft-deletes the project. Payments and invoices are not
-    // deleted or changed, so their immutable financial history stays intact.
-    // Blocking this operation made a normal project archive fail whenever a
-    // payment had been recorded.
-    await tx.project.update({
-      where: { id },
-      data: { deletedAt: new Date(), deletedBy: auth.userId },
-    });
+    // A user-initiated delete is a permanent removal. Database foreign-key
+    // actions remove project-owned records (shoots, tasks, deliveries, etc.)
+    // and detach retained accounting records where the schema requires it.
+    await tx.project.delete({ where: { id } });
 
     await recordAudit(tx, ctx, {
-      action: 'SOFT_DELETE',
+      action: 'DELETE',
       entityType: 'Project',
       entityId: id,
-      summary: `Project ${project.projectNumber} archived`,
+      summary: `Project ${project.projectNumber} permanently deleted`,
       oldData: project,
     });
   });

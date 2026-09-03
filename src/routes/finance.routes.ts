@@ -20,6 +20,10 @@ import {
   refundPaymentSchema,
   reviewExpenseSchema,
   updateExpenseSchema,
+  createIncomeSchema,
+  createExpensePaymentSchema,
+  incomeListQuery,
+  updateIncomeSchema,
 } from '../validators/finance.validator';
 
 export const quotationRouter = Router();
@@ -130,6 +134,7 @@ expenseRouter.get(
   validate({ query: expenseListQuery }),
   controller.listExpenses,
 );
+expenseRouter.get('/summary', requirePermission('EXPENSE_VIEW'), controller.expenseSummary);
 expenseRouter.post(
   '/',
   requirePermission('EXPENSE_CREATE'),
@@ -161,9 +166,21 @@ expenseRouter.post(
   validate({ params: idParam, body: reviewExpenseSchema }),
   controller.reviewExpense,
 );
+expenseRouter.post('/:id/payments', requirePermission('EXPENSE_UPDATE'), validate({ params: idParam, body: createExpensePaymentSchema }), controller.addExpensePayment);
 expenseRouter.delete(
   '/:id',
   requirePermission('EXPENSE_DELETE'),
   validate({ params: idParam }),
   controller.removeExpense,
 );
+
+export const incomeRouter = Router();
+incomeRouter.get('/summary', requirePermission('EXPENSE_VIEW'), controller.incomeSummary);
+incomeRouter.get('/', requirePermission('EXPENSE_VIEW'), validate({ query: incomeListQuery }), controller.listIncomes);
+incomeRouter.post('/', requirePermission('EXPENSE_CREATE'), validate({ body: createIncomeSchema }), controller.createIncome);
+incomeRouter.get('/:id', requirePermission('EXPENSE_VIEW'), validate({ params: idParam }), controller.getIncome);
+incomeRouter.patch('/:id', requirePermission('EXPENSE_UPDATE'), validate({ params: idParam, body: updateIncomeSchema }), controller.updateIncome);
+incomeRouter.delete('/:id', requirePermission('EXPENSE_DELETE'), validate({ params: idParam }), controller.removeIncome);
+
+export const financeRouter = Router();
+financeRouter.get('/profit-loss', requirePermission('EXPENSE_VIEW'), controller.profitLoss);
