@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { dateOnly, isoDateTime, listQuery, nonNegativeDecimal, uuid } from './common.validator';
 
 export const PROJECT_STATUS = z.enum([
+  'UPCOMING',
   'LEAD',
   'CONFIRMED',
   'PLANNING',
