@@ -1003,6 +1003,7 @@ model Project {
   name            String        @db.VarChar(200)
   type            ProjectType   @default(WEDDING)
   status          ProjectStatus @default(LEAD)
+  isUrgent        Boolean       @default(false) @map("is_urgent")
   weddingDate     DateTime?     @map("wedding_date") @db.Date
   deliveryDueDate DateTime?     @map("delivery_due_date") @db.Date
   venueName       String?       @map("venue_name") @db.VarChar(200)
@@ -1163,6 +1164,7 @@ model Shoot {
   city           String?     @db.VarChar(80)
   status         ShootStatus @default(SCHEDULED)
   notes          String?     @db.Text
+  plannedRoleSlots Json?     @map("planned_role_slots")
   dataSizeGb     Decimal?    @map("data_size_gb") @db.Decimal(10, 2)
   dataReceivedAt DateTime?   @map("data_received_at") @db.Timestamptz(6)
   backupDoneAt   DateTime?   @map("backup_done_at") @db.Timestamptz(6)

@@ -268,6 +268,7 @@ async function createProjectShoots(
         location: item.location,
         city: item.city,
         notes: item.notes,
+        plannedRoleSlots: item.plannedRoleSlots,
         status,
         createdById: auth.userId,
         completedAt: status === ShootStatus.COMPLETED ? new Date() : undefined,
@@ -309,6 +310,7 @@ export interface ProjectListQuery {
   limit?: number;
   search?: string;
   status?: ProjectStatus;
+  isUrgent?: boolean;
   type?: ProjectType;
   clientId?: string;
   managerId?: string;
@@ -326,6 +328,7 @@ export function listProjects(organizationId: string, query: ProjectListQuery) {
     where: andWhere(
       { organizationId, deletedAt: null },
       query.status ? { status: query.status } : undefined,
+      query.isUrgent === undefined ? undefined : { isUrgent: query.isUrgent },
       query.type ? { type: query.type } : undefined,
       query.clientId ? { clientId: query.clientId } : undefined,
       query.managerId ? { managerId: query.managerId } : undefined,
@@ -436,6 +439,7 @@ export interface CreateProjectInput {
   name: string;
   type?: ProjectType;
   status?: ProjectStatus;
+  isUrgent?: boolean;
   weddingDate?: Date;
   deliveryDueDate?: Date;
   venueName?: string;
@@ -478,6 +482,7 @@ export interface CreateProjectInput {
     city?: string;
     notes?: string;
     status?: ShootStatus;
+    plannedRoleSlots?: Array<{ role: string; requiredCount: number }>;
     crewAssignments?: Array<{
       userId: string;
       role: CrewRole;
@@ -519,6 +524,7 @@ export async function createProject(
         name: input.name,
         type: input.type ?? 'WEDDING',
         status: input.status ?? ProjectStatus.LEAD,
+        isUrgent: input.isUrgent ?? false,
         weddingDate: input.weddingDate,
         deliveryDueDate: input.deliveryDueDate,
         venueName: input.venueName,
@@ -610,6 +616,7 @@ export async function updateProject(
         notes: input.notes,
         managerId: input.managerId,
         branchId: input.branchId,
+        isUrgent: input.isUrgent,
       },
     });
 
