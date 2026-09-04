@@ -3,6 +3,7 @@ import { requireAuth } from '../middleware/auth';
 import authRoutes from './auth.routes';
 import { clientRouter, leadRouter } from './crm.routes';
 import { dashboardRouter } from './dashboard.routes';
+import { settingsWorkspaceRouter } from './settings.routes';
 import { eventRouter, projectRouter, shootRouter } from './project.routes';
 import { expenseRouter, financeRouter, incomeRouter, invoiceRouter, paymentRouter, quotationRouter } from './finance.routes';
 import { attendanceRouter, deliveryRouter, freelancerRouter, personalNoteRouter, personalTodoRouter, taskRouter } from './ops.routes';
@@ -62,6 +63,9 @@ router.use('/files', fileRouter);
 router.use('/notifications', notificationRouter);
 router.use('/reports', reportRouter);
 router.use('/audit', auditRouter);
+// The Settings workspace owns named sub-paths under `/settings`; the existing
+// key/value setting router below still owns `GET /` and `PUT /`.
+router.use('/settings', settingsWorkspaceRouter);
 router.use('/settings', settingRouter);
 router.use('/data-management', dataManagementRouter);
 
