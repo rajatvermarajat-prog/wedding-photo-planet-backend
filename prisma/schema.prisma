@@ -485,6 +485,10 @@ model Organization {
   settingsEntries  SystemSetting[]
   idempotencyKeys  IdempotencyKey[]
 
+  // Settings workspace (additive — a back-relation declares no column here).
+  organizationSetting  OrganizationSetting?
+  moduleAccessRequests ModuleAccessRequest[]
+
   @@index([status])
   @@map("organizations")
 }
@@ -598,6 +602,11 @@ model User {
   uploadedFiles FileObject[]   @relation("FileUploadedBy")
   notifications Notification[]
   auditLogs     AuditLog[]     @relation("AuditActor")
+
+  // Settings workspace (additive — a back-relation declares no column here).
+  userSetting          UserSetting?
+  moduleAccessRequests ModuleAccessRequest[] @relation("ModuleAccessRequester")
+  moduleAccessReviews  ModuleAccessRequest[] @relation("ModuleAccessReviewer")
 
   @@unique([organizationId, email])
   @@unique([organizationId, employeeCode])
@@ -2074,4 +2083,80 @@ model IdempotencyKey {
   @@unique([organizationId, key, endpoint])
   @@index([expiresAt])
   @@map("idempotency_keys")
+}
+
+// ===========================================================================
+// SETTINGS WORKSPACE
+//
+// Purely additive. Everything the Settings screens own lives in these three
+// tables; nothing here duplicates a field that already has an owner elsewhere.
+//   * Studio identity (name, contact, timezone, currency) stays on
+//     `Organization` — the single source of truth every other module reads.
+//   * Employee identity (fullName, phone) stays on `User`.
+//   * Module grants stay in `Role` / `RolePermission` / `UserRole` — approving
+//     a request writes there, so the Roles & Permissions desk sees it too.
+// ===========================================================================
+
+enum ModuleAccessRequestStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+/// Settings-only extras for a studio that have no column on `Organization`.
+/// Kept in its own table so the shared `organizations` row is never reshaped.
+model OrganizationSetting {
+  id             String   @id @default(uuid()) @db.Uuid
+  organizationId String   @unique @map("organization_id") @db.Uuid
+  logoUrl        String?  @map("logo_url") @db.VarChar(500)
+  dateFormat     String?  @map("date_format") @db.VarChar(32)
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@map("organization_settings")
+}
+
+/// Per-employee Settings state: avatar URL plus the notification and security
+/// toggle maps. The toggles are `jsonb` because the catalogue of switches is
+/// presentation state that changes with the UI, not a relational fact.
+model UserSetting {
+  id            String   @id @default(uuid()) @db.Uuid
+  userId        String   @unique @map("user_id") @db.Uuid
+  avatarUrl     String?  @map("avatar_url") @db.VarChar(500)
+  notifications Json     @default("{}") @map("notifications") @db.JsonB
+  security      Json     @default("{}") @map("security") @db.JsonB
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt     DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("user_settings")
+}
+
+/// An employee's request for access to a module. Approving one grants the
+/// module's permission keys through the existing RBAC tables; this row is only
+/// the paper trail of who asked, who decided and why.
+model ModuleAccessRequest {
+  id             String                    @id @default(uuid()) @db.Uuid
+  organizationId String                    @map("organization_id") @db.Uuid
+  employeeId     String                    @map("employee_id") @db.Uuid
+  moduleKey      String                    @map("module_key") @db.VarChar(48)
+  reason         String                    @db.Text
+  status         ModuleAccessRequestStatus @default(PENDING)
+  reviewedById   String?                   @map("reviewed_by_id") @db.Uuid
+  reviewedAt     DateTime?                 @map("reviewed_at") @db.Timestamptz(6)
+  reviewReason   String?                   @map("review_reason") @db.Text
+  createdAt      DateTime                  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime                  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  employee     User         @relation("ModuleAccessRequester", fields: [employeeId], references: [id], onDelete: Cascade)
+  reviewedBy   User?        @relation("ModuleAccessReviewer", fields: [reviewedById], references: [id], onDelete: SetNull)
+
+  @@index([organizationId, status, createdAt])
+  @@index([employeeId, status])
+  @@index([reviewedById])
+  @@map("module_access_requests")
 }
