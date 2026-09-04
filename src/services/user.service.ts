@@ -1,4 +1,4 @@
-import { Prisma, RoleStatus, UserStatus } from '@prisma/client';
+import { LogoutReason, Prisma, RoleStatus, SessionStatus, UserStatus } from '@prisma/client';
 import { prisma } from '../config/prisma';
 import { andWhere, findScoped, paginate, searchFilter } from '../repositories/base.repository';
 import { resolveSort } from '../utils/pagination';
@@ -242,7 +242,10 @@ export async function updateUser(
 
     // Deactivating an account must take effect immediately, not at token expiry.
     if (input.status && input.status !== 'ACTIVE' && existing.status === 'ACTIVE') {
-      await revokeAllSessions(id);
+      await tx.session.updateMany({
+        where: { userId: id, status: SessionStatus.ACTIVE },
+        data: { status: SessionStatus.REVOKED, revokedAt: new Date(), revokeReason: LogoutReason.ADMIN_REVOKED },
+      });
     }
 
     await recordAudit(tx, ctx, {
@@ -326,7 +329,7 @@ export async function resetUserPassword(
     where: { id },
     data: { passwordHash: await hashPassword(newPassword), passwordChangedAt: new Date() },
   });
-  await revokeAllSessions(id, 'PASSWORD_CHANGED');
+  await revokeAllSessions(id, LogoutReason.PASSWORD_CHANGED);
 
   await recordAudit(prisma, ctx, {
     action: 'UPDATE',
@@ -352,7 +355,10 @@ export async function deleteUser(auth: AuthContext, id: string, ctx: AuditReques
       where: { id },
       data: { deletedAt: new Date(), deletedBy: auth.userId, status: UserStatus.DISABLED },
     });
-    await revokeAllSessions(id);
+    await tx.session.updateMany({
+      where: { userId: id, status: SessionStatus.ACTIVE },
+      data: { status: SessionStatus.REVOKED, revokedAt: new Date(), revokeReason: LogoutReason.ADMIN_REVOKED },
+    });
 
     await recordAudit(tx, ctx, {
       action: 'SOFT_DELETE',
