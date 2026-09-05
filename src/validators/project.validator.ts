@@ -161,7 +161,7 @@ const projectInputSchema = z.object({
         category: embeddedProjectTaskCategory.optional(),
         priority: embeddedProjectTaskPriority.optional(),
         quantity: z.coerce.number().int().min(1).max(100000).optional(),
-        unit: z.string().max(32).optional(),
+        unit: z.string().max(160).optional(),
         dueDate: toDate.optional(),
         assigneeId: uuid.optional(),
         status: embeddedProjectTaskStatus.optional(),
@@ -385,3 +385,18 @@ export const updateAssignmentSchema = z.object({
 
 export const assignmentParams = z.object({ id: uuid, assignmentId: uuid });
 export const paymentMilestoneParams = z.object({ id: uuid, milestoneId: z.string().trim().min(1).max(64) });
+
+const paymentMilestoneStatus = z.enum(['PENDING', 'RECEIVED', 'OVERDUE']);
+
+export const createPaymentMilestoneSchema = z.object({
+  title: z.string().trim().min(1).max(160),
+  amount: nonNegativeDecimal,
+  // The UI sends this calculated value so the submitted form is complete.
+  // Amount remains the stored source of truth for the milestone.
+  percentage: nonNegativeDecimal.optional(),
+  dueDate: toDate,
+  status: paymentMilestoneStatus,
+  notes: z.string().trim().max(2000).optional(),
+});
+
+export const updatePaymentMilestoneSchema = createPaymentMilestoneSchema;

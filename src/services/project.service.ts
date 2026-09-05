@@ -428,6 +428,51 @@ export function listPaymentMilestones(organizationId: string, projectId: string)
   return prisma.paymentMilestone.findMany({ where: { organizationId, projectId }, orderBy: { createdAt: 'asc' } });
 }
 
+export interface PaymentMilestoneInput {
+  title: string;
+  amount: string;
+  /** Derived by the UI from amount / project total; not a database column. */
+  percentage?: string;
+  dueDate: Date;
+  status: 'PENDING' | 'RECEIVED' | 'OVERDUE';
+  notes?: string;
+}
+
+export async function createPaymentMilestone(
+  auth: AuthContext, projectId: string, input: PaymentMilestoneInput, ctx: AuditRequestContext,
+) {
+  return prisma.$transaction(async (tx) => {
+    await findScoped(tx.project, auth.organizationId, projectId, 'Project', { select: { id: true } });
+    const { percentage: _percentage, ...milestoneData } = input;
+    const milestone = await tx.paymentMilestone.create({
+      data: { organizationId: auth.organizationId, projectId, ...milestoneData },
+    });
+    await recordAudit(tx, ctx, {
+      action: 'CREATE', entityType: 'PaymentMilestone', entityId: milestone.id,
+      summary: `Payment milestone ${milestone.title} created`, newData: milestone,
+    });
+    return milestone;
+  });
+}
+
+export async function updatePaymentMilestone(
+  auth: AuthContext, projectId: string, milestoneId: string, input: PaymentMilestoneInput, ctx: AuditRequestContext,
+) {
+  return prisma.$transaction(async (tx) => {
+    const existing = await tx.paymentMilestone.findFirst({
+      where: { id: milestoneId, projectId, organizationId: auth.organizationId },
+    });
+    if (!existing) throw notFound('Payment milestone');
+    const { percentage: _percentage, ...milestoneData } = input;
+    const milestone = await tx.paymentMilestone.update({ where: { id: milestoneId }, data: milestoneData });
+    await recordAudit(tx, ctx, {
+      action: 'UPDATE', entityType: 'PaymentMilestone', entityId: milestone.id,
+      summary: `Payment milestone ${milestone.title} updated`, oldData: existing, newData: milestone,
+    });
+    return milestone;
+  });
+}
+
 export interface CreateProjectInput {
   clientId?: string;
   client?: {
