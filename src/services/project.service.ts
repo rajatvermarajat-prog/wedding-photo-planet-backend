@@ -344,6 +344,7 @@ export function listProjects(organizationId: string, query: ProjectListQuery) {
       client: { select: { id: true, clientCode: true, displayName: true, primaryPhone: true } },
       manager: { select: { id: true, fullName: true } },
       tasks: PROJECT_TASK_INCLUDE,
+      paymentMilestones: { select: { id: true, amount: true, status: true } },
       _count: { select: { events: true, shoots: true, tasks: true, deliveries: true } },
     },
   });
@@ -362,6 +363,7 @@ export async function getProject(organizationId: string, id: string) {
       payments: {
         orderBy: { paymentDate: 'desc' },
       },
+      paymentMilestones: { select: { id: true, amount: true, status: true } },
       deliveries: { where: { deletedAt: null }, orderBy: { expectedDate: 'asc' } },
       statusHistory: {
         orderBy: { createdAt: 'desc' },
