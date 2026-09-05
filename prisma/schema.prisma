@@ -1354,7 +1354,7 @@ model Task {
   status           TaskStatus   @default(TODO)
   priority         TaskPriority @default(MEDIUM)
   quantity         Int          @default(1)
-  unit             String?      @db.VarChar(32)
+  unit             String?      @db.VarChar(160)
   dueDate          DateTime?    @map("due_date") @db.Date
   assigneeId       String?      @map("assignee_id") @db.Uuid
   createdById      String?      @map("created_by_id") @db.Uuid

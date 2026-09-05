@@ -59,7 +59,7 @@ export const createTaskSchema = z.object({
   category: TASK_CATEGORY.optional(),
   priority: TASK_PRIORITY.optional(),
   quantity: z.coerce.number().int().min(1).max(100000).optional(),
-  unit: z.string().max(32).optional(),
+  unit: z.string().max(160).optional(),
   dueDate: toDate.optional(),
   assigneeId: uuid.optional(),
   projectId: uuid.optional(),
@@ -167,7 +167,7 @@ export const createDeliverySchema = z.object({
         name: z.string().trim().min(1).max(200),
         description: z.string().max(2000).optional(),
         quantity: z.coerce.number().int().min(1).max(100000).optional(),
-        unit: z.string().max(32).optional(),
+        unit: z.string().max(160).optional(),
       }),
     )
     .max(50)

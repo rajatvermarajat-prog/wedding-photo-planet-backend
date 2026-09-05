@@ -7,6 +7,7 @@ import { idParam } from '../validators/common.validator';
 import {
   assignCrewSchema,
   assignmentParams,
+  createPaymentMilestoneSchema,
   paymentMilestoneParams,
   createEventSchema,
   createProjectSchema,
@@ -17,6 +18,7 @@ import {
   projectStatusSchema,
   shootListQuery,
   updateAssignmentSchema,
+  updatePaymentMilestoneSchema,
   updateEventSchema,
   updateProjectSchema,
   updateShootSchema,
@@ -69,6 +71,18 @@ projectRouter.get(
   requirePermission('PROJECT_VIEW'),
   validate({ params: idParam }),
   controller.statusHistory,
+);
+projectRouter.post(
+  '/:id/payment-milestones',
+  requirePermission('PROJECT_UPDATE'),
+  validate({ params: idParam, body: createPaymentMilestoneSchema }),
+  controller.createPaymentMilestone,
+);
+projectRouter.patch(
+  '/:id/payment-milestones/:milestoneId',
+  requirePermission('PROJECT_UPDATE'),
+  validate({ params: paymentMilestoneParams, body: updatePaymentMilestoneSchema }),
+  controller.updatePaymentMilestone,
 );
 projectRouter.delete(
   '/:id',
