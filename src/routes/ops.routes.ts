@@ -10,11 +10,13 @@ import {
   createFreelancerSchema,
   createTaskSchema,
   deliveryListQuery,
+  employeePerformanceParams,
   deliveryStatusSchema,
   freelancerListQuery,
   freelancerPayoutSchema,
   leaveListQuery,
   markAttendanceSchema,
+  monthlyAttendanceSummaryQuery,
   personalTodoListQuery,
   createPersonalTodoSchema,
   updatePersonalTodoSchema,
@@ -165,7 +167,6 @@ export const attendanceRouter = Router();
 
 attendanceRouter.get(
   '/',
-  requirePermission('ATTENDANCE_VIEW'),
   validate({ query: attendanceListQuery }),
   controller.listAttendance,
 );
@@ -176,6 +177,9 @@ attendanceRouter.post(
   controller.markAttendance,
 );
 attendanceRouter.get('/summary', requirePermission('ATTENDANCE_VIEW'), controller.attendanceSummary);
+attendanceRouter.get('/monthly-summary', validate({ query: monthlyAttendanceSummaryQuery }), controller.monthlyAttendanceSummary);
+attendanceRouter.get('/performance/:userId', validate({ params: employeePerformanceParams, query: monthlyAttendanceSummaryQuery }), controller.employeePerformanceReport);
+attendanceRouter.get('/performance/:userId/pdf', validate({ params: employeePerformanceParams, query: monthlyAttendanceSummaryQuery }), controller.downloadEmployeePerformanceReport);
 
 attendanceRouter.get(
   '/leave',

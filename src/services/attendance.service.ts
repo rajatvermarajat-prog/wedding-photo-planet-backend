@@ -153,6 +153,95 @@ export function getAttendanceSummary(
   });
 }
 
+function minutesFromShift(value: string | null): number | null {
+  if (!value) return null;
+  const match = value.match(/^(\d{2}):(\d{2})$/);
+  if (!match) return null;
+  return Number(match[1]) * 60 + Number(match[2]);
+}
+
+/** Authoritative month payroll derived from the persisted attendance ledger. */
+export async function getMonthlyAttendanceSummary(
+  organizationId: string,
+  query: { month?: string; userId?: string },
+) {
+  const month = query.month ?? new Date().toISOString().slice(0, 7);
+  const from = new Date(`${month}-01T00:00:00.000Z`);
+  const to = new Date(Date.UTC(from.getUTCFullYear(), from.getUTCMonth() + 1, 1));
+  const employees = await prisma.user.findMany({
+    where: { organizationId, deletedAt: null, ...(query.userId ? { id: query.userId } : {}) },
+    select: {
+      id: true, fullName: true, employeeCode: true,
+      employeeProfile: { select: { monthlySalary: true, dailyRate: true, shiftStart: true, shiftEnd: true } },
+      attendances: { where: { date: { gte: from, lt: to } }, select: { status: true, isLate: true, workingMinutes: true } },
+    },
+    orderBy: { fullName: 'asc' },
+  });
+  return {
+    month,
+    employees: employees.map((employee) => {
+      const records = employee.attendances;
+      const count = (status: AttendanceStatus) => records.filter((record) => record.status === status).length;
+      const present = count(AttendanceStatus.PRESENT);
+      const halfDay = count(AttendanceStatus.HALF_DAY);
+      const absent = count(AttendanceStatus.ABSENT);
+      const late = records.filter((record) => record.isLate).length;
+      const workingMinutes = records.reduce((sum, record) => sum + record.workingMinutes, 0);
+      const payableDays = present + halfDay * 0.5;
+      const profile = employee.employeeProfile;
+      const dailyRate = Number(profile?.dailyRate ?? 0) || Math.round(Number(profile?.monthlySalary ?? 0) / 26);
+      const shiftStart = minutesFromShift(profile?.shiftStart ?? null);
+      const shiftEnd = minutesFromShift(profile?.shiftEnd ?? null);
+      const shiftMinutes = shiftStart === null || shiftEnd === null ? null : (shiftEnd - shiftStart + 1440) % 1440;
+      const expectedMinutes = shiftMinutes === null ? 0 : present * shiftMinutes + halfDay * Math.round(shiftMinutes / 2);
+      return {
+        userId: employee.id, fullName: employee.fullName, employeeCode: employee.employeeCode,
+        present, absent, late, halfDay, onLeave: count(AttendanceStatus.ON_LEAVE),
+        payableDays, workingMinutes, expectedMinutes,
+        undertimeMinutes: Math.max(0, expectedMinutes - workingMinutes),
+        dailyRate, calculatedSalary: Math.round(payableDays * dailyRate * 100) / 100,
+        shift: { start: profile?.shiftStart ?? null, end: profile?.shiftEnd ?? null },
+      };
+    }),
+  };
+}
+
+/** One employee's month report: payroll/attendance plus delivery performance. */
+export async function getEmployeePerformanceReport(
+  organizationId: string,
+  userId: string,
+  month?: string,
+) {
+  const summary = await getMonthlyAttendanceSummary(organizationId, { month, userId });
+  const employee = summary.employees[0];
+  if (!employee) throw notFound('User');
+  const [assignedTasks, completedTasks, workSessions, shootAssignments] = await Promise.all([
+    prisma.task.count({ where: { organizationId, assigneeId: userId, deletedAt: null } }),
+    prisma.task.count({ where: { organizationId, assigneeId: userId, deletedAt: null, status: 'COMPLETED' } }),
+    prisma.workSession.aggregate({ where: { userId }, _sum: { activeSeconds: true }, _count: { _all: true } }),
+    prisma.shootAssignment.count({ where: { userId, shoot: { organizationId } } }),
+  ]);
+  return {
+    month: summary.month,
+    employee,
+    attendance: {
+      present: employee.present, absent: employee.absent, late: employee.late, halfDay: employee.halfDay,
+      onLeave: employee.onLeave, payableDays: employee.payableDays,
+      workingMinutes: employee.workingMinutes, expectedMinutes: employee.expectedMinutes,
+      undertimeMinutes: employee.undertimeMinutes,
+    },
+    salary: { dailyRate: employee.dailyRate, calculatedSalary: employee.calculatedSalary },
+    performance: {
+      assignedTasks,
+      completedTasks,
+      completionRate: assignedTasks ? Math.round((completedTasks / assignedTasks) * 100) : 0,
+      trackedWorkSessions: workSessions._count._all,
+      trackedWorkMinutes: Math.round((workSessions._sum.activeSeconds ?? 0) / 60),
+      shootAssignments,
+    },
+  };
+}
+
 export function listLeaveRequests(
   organizationId: string,
   query: {

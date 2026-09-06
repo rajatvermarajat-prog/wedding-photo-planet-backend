@@ -30,6 +30,8 @@ const PUBLIC_SELECT = {
       joiningDate: true,
       monthlySalary: true,
       dailyRate: true,
+      shiftStart: true,
+      shiftEnd: true,
       workLocation: true,
       skills: true,
       department: { select: { id: true, name: true } },
@@ -95,6 +97,8 @@ export interface CreateUserInput {
     joiningDate?: Date;
     monthlySalary?: number;
     dailyRate?: number;
+    shiftStart?: string;
+    shiftEnd?: string;
     workLocation?: 'OFFICE' | 'WFH' | 'HYBRID' | 'ON_SHOOT';
     skills?: string[];
     reportingManagerId?: string;
@@ -131,6 +135,7 @@ async function assertAssignableRoles(
     },
   });
   if (roles.length !== roleIds.length) throw badRequest('One or more roles are invalid');
+
 
   // A personal role holds one employee's own permission set; handing it to a
   // colleague would silently change access for both of them.

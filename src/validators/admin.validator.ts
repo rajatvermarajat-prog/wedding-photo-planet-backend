@@ -24,6 +24,8 @@ const employeeProfileSchema = z.object({
   joiningDate: z.coerce.date().optional(),
   monthlySalary: z.coerce.number().min(0).optional(),
   dailyRate: z.coerce.number().min(0).optional(),
+  shiftStart: z.string().regex(/^\d{2}:\d{2}$/).optional(),
+  shiftEnd: z.string().regex(/^\d{2}:\d{2}$/).optional(),
   workLocation: z.enum(['OFFICE', 'WFH', 'HYBRID', 'ON_SHOOT']).optional(),
   skills: z.array(z.string().max(60)).max(30).optional(),
   reportingManagerId: uuid.optional(),
@@ -75,6 +77,11 @@ export const updateRoleSchema = z
   .refine((body) => Object.keys(body).length > 0, { message: 'Nothing to update' });
 
 export const setPermissionsSchema = z.object({
+  permissionKeys: z.array(permissionKey).max(PERMISSION_KEYS.length),
+});
+
+/** Replaces one employee's effective permission set without changing their role. */
+export const setUserPermissionOverrideSchema = z.object({
   permissionKeys: z.array(permissionKey).max(PERMISSION_KEYS.length),
 });
 

@@ -39,6 +39,7 @@ interface SessionRow {
   org_timezone: string;
   roles: string[];
   permissions: string[];
+  override_permissions: unknown;
 }
 
 function extractToken(req: Request): string | null {
@@ -87,7 +88,8 @@ export async function requireAuth(
         o.currency      AS org_currency,
         o.timezone      AS org_timezone,
         coalesce(array_agg(DISTINCT r.name) FILTER (WHERE r.id IS NOT NULL), '{}') AS roles,
-        coalesce(array_agg(DISTINCT p.key) FILTER (WHERE p.id IS NOT NULL), '{}') AS permissions
+        coalesce(array_agg(DISTINCT p.key) FILTER (WHERE p.id IS NOT NULL), '{}') AS permissions,
+        max(upo.permission_keys::text)::jsonb AS override_permissions
       FROM sessions s
       JOIN users u ON u.id = s.user_id
       JOIN organizations o ON o.id = u.organization_id
@@ -95,6 +97,7 @@ export async function requireAuth(
       LEFT JOIN roles r ON r.id = ur.role_id AND r.deleted_at IS NULL AND r.status = 'ACTIVE'
       LEFT JOIN role_permissions rp ON rp.role_id = r.id
       LEFT JOIN permissions p ON p.id = rp.permission_id
+      LEFT JOIN user_permission_overrides upo ON upo.user_id = u.id AND upo.organization_id = u.organization_id
       WHERE s.id = ${payload.sessionId}::uuid
       GROUP BY s.id, s.status, s.expires_at, u.id, o.id
     `;
@@ -110,7 +113,11 @@ export async function requireAuth(
     if (row.user_status !== 'ACTIVE') throw forbidden(`Account is ${row.user_status.toLowerCase()}`);
 
     const roles = row.roles;
-    const permissions = new Set(row.permissions);
+    const override = Array.isArray(row.override_permissions) && row.override_permissions.every((key) => typeof key === 'string')
+      ? row.override_permissions as string[]
+      : null;
+    // A present override is an explicit effective set, not an additive grant.
+    const permissions = new Set(override ?? row.permissions);
 
     const auth: AuthContext = {
       userId: row.user_id,

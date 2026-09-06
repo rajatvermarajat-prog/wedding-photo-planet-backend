@@ -14,6 +14,7 @@ import {
   registerFileSchema,
   resetPasswordSchema,
   setPermissionsSchema,
+  setUserPermissionOverrideSchema,
   setRolesSchema,
   settingSchema,
   updateBranchSchema,
@@ -58,6 +59,14 @@ userRouter.put(
   validate({ params: idParam, body: setRolesSchema }),
   controller.setUserRoles,
 );
+userRouter.get('/:id/permission-override', requirePermission('PERMISSION_ASSIGN'), validate({ params: idParam }), controller.getUserPermissionOverride);
+userRouter.put(
+  '/:id/permission-override',
+  requirePermission('PERMISSION_ASSIGN'),
+  validate({ params: idParam, body: setUserPermissionOverrideSchema }),
+  controller.setUserPermissionOverride,
+);
+userRouter.delete('/:id/permission-override', requirePermission('PERMISSION_ASSIGN'), validate({ params: idParam }), controller.clearUserPermissionOverride);
 userRouter.post(
   '/:id/reset-password',
   requirePermission('USER_MANAGE'),
