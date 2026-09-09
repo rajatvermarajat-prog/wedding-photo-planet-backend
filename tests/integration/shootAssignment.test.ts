@@ -7,6 +7,7 @@ describe('shoot crew assignment', () => {
   let token: string;
   let shootId: string;
   let freelancerId: string;
+  let clientId: string;
 
   beforeEach(async () => {
     await resetDatabase();
@@ -17,6 +18,7 @@ describe('shoot crew assignment', () => {
       .post(`${base}/clients`)
       .send({ displayName: 'Test Couple', primaryPhone: '+919812345678' })
       .expect(201);
+    clientId = client.body.data.id;
 
     const project = await authed(token)
       .post(`${base}/projects`)
@@ -92,6 +94,37 @@ describe('shoot crew assignment', () => {
 
     expect(duplicate.status).toBe(409);
     expect(await prisma.shootAssignment.count({ where: { shootId } })).toBe(1);
+  });
+
+  it('blocks an employee on the same date across projects but allows a different date', async () => {
+    const secondProject = await authed(token)
+      .post(`${base}/projects`)
+      .send({ clientId, name: 'Second Wedding', weddingDate: '2026-12-14' })
+      .expect(201);
+    const sameDateShoot = await authed(token)
+      .post(`${base}/shoots`)
+      .send({ projectId: secondProject.body.data.id, title: 'Same-date shoot', shootDate: '2026-12-14' })
+      .expect(201);
+    const differentDateShoot = await authed(token)
+      .post(`${base}/shoots`)
+      .send({ projectId: secondProject.body.data.id, title: 'Different-date shoot', shootDate: '2026-12-15' })
+      .expect(201);
+
+    await authed(token)
+      .post(`${base}/shoots/${shootId}/assignments`)
+      .send({ userId: org.member.id, role: 'LEAD_PHOTOGRAPHER' })
+      .expect(201);
+
+    const conflict = await authed(token)
+      .post(`${base}/shoots/${sameDateShoot.body.data.id}/assignments`)
+      .send({ userId: org.member.id, role: 'LEAD_PHOTOGRAPHER' });
+    expect(conflict.status).toBe(409);
+    expect(conflict.body.error.message).toBe('This employee is already assigned on this date.');
+
+    await authed(token)
+      .post(`${base}/shoots/${differentDateShoot.body.data.id}/assignments`)
+      .send({ userId: org.member.id, role: 'LEAD_PHOTOGRAPHER' })
+      .expect(201);
   });
 
   it('prevents assigning the same freelancer to the same shoot twice', async () => {

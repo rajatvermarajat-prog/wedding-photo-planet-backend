@@ -224,6 +224,15 @@ export async function assignCrew(
         select: { id: true },
       });
       if (!user) throw notFound('Team member');
+
+      const sameDay = await tx.shootAssignment.count({
+        where: {
+          userId: input.userId,
+          status: { notIn: ['DECLINED', 'CANCELLED'] },
+          shoot: { shootDate: shoot.shootDate, deletedAt: null },
+        },
+      });
+      if (sameDay > 0) throw conflict('This employee is already assigned on this date.');
     } else {
       const freelancer = await tx.freelancer.findFirst({
         where: { id: input.freelancerId, organizationId: auth.organizationId, deletedAt: null },
