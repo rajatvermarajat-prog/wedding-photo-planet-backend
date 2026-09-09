@@ -1,7 +1,7 @@
 import { Permission, RoleStatus, RoleType } from '@prisma/client';
 import { prisma } from '../config/prisma';
 import { TtlCache } from '../utils/cache';
-import { withAlwaysGranted } from '../types/permissions';
+import { SYSTEM_ROLES, withAlwaysGranted } from '../types/permissions';
 import { badRequest, conflict, forbidden, notFound } from '../utils/errors';
 import { AuthContext } from '../types';
 import { AuditRequestContext, recordAudit } from './audit.service';
@@ -64,7 +64,7 @@ async function resolvePermissions(keys: string[]): Promise<Permission[]> {
 
 export async function listRoles(auth: AuthContext) {
   const roles = await prisma.role.findMany({
-    where: { organizationId: auth.organizationId, deletedAt: null },
+    where: { organizationId: auth.organizationId, deletedAt: null, name: { in: [...SYSTEM_ROLES] } },
     orderBy: [{ type: 'asc' }, { name: 'asc' }],
     include: {
       // Keys only: the client already holds the catalogue, so shipping each
@@ -121,6 +121,84 @@ export async function listRoleUsers(organizationId: string, roleId: string) {
 
 export function listPermissions() {
   return permissionCatalogue();
+}
+
+export async function getUserPermissionOverride(organizationId: string, userId: string) {
+  const user = await prisma.user.findFirst({
+    where: { id: userId, organizationId, deletedAt: null },
+    select: {
+      id: true,
+      fullName: true,
+      userRoles: {
+        select: {
+          role: {
+            select: {
+              id: true,
+              name: true,
+              rolePermissions: { select: { permission: { select: { key: true } } } },
+            },
+          },
+        },
+      },
+      permissionOverride: { select: { permissionKeys: true, updatedAt: true } },
+    },
+  });
+  if (!user) throw notFound('Employee not found');
+  const defaultPermissionKeys = [...new Set(user.userRoles.flatMap(({ role }) => role.rolePermissions.map(({ permission }) => permission.key)))].sort();
+  const override = user.permissionOverride?.permissionKeys;
+  const overridePermissionKeys = Array.isArray(override) && override.every((key): key is string => typeof key === 'string') ? override : null;
+  return {
+    userId: user.id,
+    fullName: user.fullName,
+    roleNames: user.userRoles.map(({ role }) => role.name),
+    defaultPermissionKeys,
+    overridePermissionKeys,
+    effectivePermissionKeys: overridePermissionKeys ?? defaultPermissionKeys,
+    updatedAt: user.permissionOverride?.updatedAt ?? null,
+  };
+}
+
+export async function setUserPermissionOverride(
+  auth: AuthContext,
+  userId: string,
+  permissionKeys: string[],
+  ctx: AuditRequestContext,
+) {
+  assertCanGrant(auth, permissionKeys);
+  await resolvePermissions(permissionKeys);
+  const existing = await getUserPermissionOverride(auth.organizationId, userId);
+  const normalized = [...new Set(permissionKeys)].sort();
+  const record = await prisma.userPermissionOverride.upsert({
+    where: { userId },
+    create: { organizationId: auth.organizationId, userId, permissionKeys: normalized },
+    update: { permissionKeys: normalized },
+    select: { updatedAt: true },
+  });
+  await recordAudit(prisma, ctx, {
+    action: 'PERMISSION_CHANGED',
+    entityType: 'User',
+    entityId: userId,
+    summary: `Employee permission override updated`,
+    oldData: { permissions: existing.effectivePermissionKeys },
+    newData: { permissions: normalized },
+  });
+  return { ...existing, overridePermissionKeys: normalized, effectivePermissionKeys: normalized, updatedAt: record.updatedAt };
+}
+
+/** Removes only the personal layer; the employee immediately inherits their fixed role again. */
+export async function clearUserPermissionOverride(auth: AuthContext, userId: string, ctx: AuditRequestContext) {
+  const existing = await getUserPermissionOverride(auth.organizationId, userId);
+  if (existing.overridePermissionKeys === null) return existing;
+  await prisma.userPermissionOverride.delete({ where: { userId } });
+  await recordAudit(prisma, ctx, {
+    action: 'PERMISSION_CHANGED',
+    entityType: 'User',
+    entityId: userId,
+    summary: 'Employee permission override reset to fixed-role defaults',
+    oldData: { permissions: existing.effectivePermissionKeys },
+    newData: { permissions: existing.defaultPermissionKeys },
+  });
+  return { ...existing, overridePermissionKeys: null, effectivePermissionKeys: existing.defaultPermissionKeys, updatedAt: null };
 }
 
 type RoleReader = { role: Pick<typeof prisma.role, 'findFirst'> };

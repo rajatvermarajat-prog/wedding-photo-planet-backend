@@ -56,7 +56,7 @@ const schema = z.object({
 
   CORS_ORIGIN: z
     .string()
-    .default(onVercel ? 'https://wedding-photo-planet.vercel.app' : 'http://localhost:3000'),
+    .default(onVercel ? 'https://wedding-photo-planet.vercel.app' : 'http://localhost:3000,http://localhost:3002'),
 
   RATE_LIMIT_WINDOW_MS: int(15 * 60 * 1000),
   RATE_LIMIT_MAX: int(300),

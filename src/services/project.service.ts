@@ -279,8 +279,17 @@ async function createProjectShoots(
     const seenUsers = new Set<string>();
     for (const assignment of item.crewAssignments || []) {
       if (!validUserIds.has(assignment.userId)) throw notFound('Team member');
-      if (seenUsers.has(assignment.userId)) throw conflict('This person is already assigned to this shoot');
+      if (seenUsers.has(assignment.userId)) throw conflict('This employee is already assigned on this date.');
       seenUsers.add(assignment.userId);
+
+      const sameDay = await tx.shootAssignment.count({
+        where: {
+          userId: assignment.userId,
+          status: { notIn: ['DECLINED', 'CANCELLED'] },
+          shoot: { shootDate: item.shootDate, deletedAt: null },
+        },
+      });
+      if (sameDay > 0) throw conflict('This employee is already assigned on this date.');
 
       await tx.shootAssignment.create({
         data: {

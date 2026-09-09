@@ -6,6 +6,8 @@ import * as freelancerService from '../services/freelancer.service';
 import * as attendanceService from '../services/attendance.service';
 import * as personalTodoService from '../services/personalTodo.service';
 import * as personalNoteService from '../services/personalNote.service';
+import { forbidden } from '../utils/errors';
+import { createPerformanceReportPdf } from '../utils/performance-report-pdf';
 
 // --- Tasks ----------------------------------------------------------------
 
@@ -168,9 +170,13 @@ export const freelancerLedger = asyncHandler(async (req, res) => {
 
 export const listAttendance = asyncHandler(async (req, res) => {
   const auth = requireAuthContext(req);
+  const canViewTeamAttendance = auth.permissions.has('ATTENDANCE_VIEW') || auth.permissions.has('ATTENDANCE_MANAGE');
+  if (!canViewTeamAttendance && req.query.userId && req.query.userId !== auth.userId) {
+    throw forbidden('You may only view your own attendance');
+  }
   const { items, pagination } = await attendanceService.listAttendance(
     auth.organizationId,
-    req.query,
+    canViewTeamAttendance ? req.query : { ...req.query, userId: auth.userId },
   );
   return sendSuccess(res, items, { pagination });
 });
@@ -190,6 +196,51 @@ export const attendanceSummary = asyncHandler(async (req, res) => {
     res,
     await attendanceService.getAttendanceSummary(auth.organizationId, req.query),
   );
+});
+
+export const monthlyAttendanceSummary = asyncHandler(async (req, res) => {
+  const auth = requireAuthContext(req);
+  const canViewTeamAttendance = auth.permissions.has('ATTENDANCE_VIEW') || auth.permissions.has('ATTENDANCE_MANAGE');
+  if (!canViewTeamAttendance && req.query.userId && req.query.userId !== auth.userId) {
+    throw forbidden('You may only view your own attendance');
+  }
+  return sendSuccess(res, await attendanceService.getMonthlyAttendanceSummary(auth.organizationId, {
+    month: typeof req.query.month === 'string' ? req.query.month : undefined,
+    userId: canViewTeamAttendance && typeof req.query.userId === 'string' ? req.query.userId : auth.userId,
+  }));
+});
+
+export const employeePerformanceReport = asyncHandler(async (req, res) => {
+  const auth = requireAuthContext(req);
+  const canViewTeamAttendance = auth.permissions.has('ATTENDANCE_VIEW') || auth.permissions.has('ATTENDANCE_MANAGE');
+  if (!canViewTeamAttendance && req.params.userId !== auth.userId) {
+    throw forbidden('You may only view your own performance report');
+  }
+  return sendSuccess(res, await attendanceService.getEmployeePerformanceReport(
+    auth.organizationId,
+    canViewTeamAttendance ? req.params.userId : auth.userId,
+    typeof req.query.month === 'string' ? req.query.month : undefined,
+  ));
+});
+
+export const downloadEmployeePerformanceReport = asyncHandler(async (req, res) => {
+  const auth = requireAuthContext(req);
+  const canViewTeamAttendance = auth.permissions.has('ATTENDANCE_VIEW') || auth.permissions.has('ATTENDANCE_MANAGE');
+  if (!canViewTeamAttendance && req.params.userId !== auth.userId) {
+    throw forbidden('You may only download your own performance report');
+  }
+  const report = await attendanceService.getEmployeePerformanceReport(
+    auth.organizationId,
+    canViewTeamAttendance ? req.params.userId : auth.userId,
+    typeof req.query.month === 'string' ? req.query.month : undefined,
+  );
+  const pdf = await createPerformanceReportPdf(report);
+  const safeName = report.employee.fullName.replace(/[^a-z0-9]+/gi, '_').replace(/^_|_$/g, '') || 'employee';
+  res.status(200)
+    .setHeader('Content-Type', 'application/pdf')
+    .setHeader('Content-Disposition', `attachment; filename="Performance_Report_${safeName}_${report.month}.pdf"`)
+    .setHeader('Cache-Control', 'private, no-store')
+    .send(pdf);
 });
 
 export const listLeave = asyncHandler(async (req, res) => {

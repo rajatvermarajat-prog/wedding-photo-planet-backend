@@ -182,27 +182,19 @@ export type PermissionKey = (typeof PERMISSION_KEYS)[number];
  * bundle; a job title must not silently grant management authority.
  */
 export const SYSTEM_ROLES = [
-  'ADMIN',
-  'MANAGER',
-  'MEMBER',
-  'Photographer',
-  'Cinematographer',
-  'Drone Operator',
-  'Assistant Photographer',
-  'Assistant Cinematographer',
-  'Editor',
-  'Photo Editor',
-  'Video Editor',
-  'Album Designer',
-  'Retoucher',
-  'Coordinator',
-  'Social Media Handler',
-  'Sales Team',
-  'Account Manager',
-  'Studio Manager',
-  'Manager',
   'Admin',
-  'Other',
+  'Manager',
+  'Account Manager',
+  'Video Editor',
+  'Social Media Handler',
+  'Photo Editor',
+  'Album Designer',
+  'Photographer - Traditional',
+  'Photographer - Candid',
+  'Videographer - Traditional',
+  'Videographer - Candid',
+  'Drone Operator',
+  'Sales Team',
 ] as const;
 export type SystemRole = (typeof SYSTEM_ROLES)[number];
 
@@ -263,12 +255,10 @@ export function withAlwaysGranted(keys: string[]): string[] {
 /** Default permission bundle for each seeded system role. */
 export function permissionsForSystemRole(role: SystemRole): string[] {
   switch (role) {
-    case 'ADMIN':
+    case 'Admin':
       return [...PERMISSION_KEYS];
-    case 'MANAGER':
+    case 'Manager':
       return PERMISSION_KEYS.filter((key) => !MANAGER_EXCLUDED.has(key));
-    case 'MEMBER':
-      return PERMISSION_KEYS.filter((key) => MEMBER_ALLOWED.has(key));
     default:
       // Job-title system roles share the non-administrative employee bundle.
       return PERMISSION_KEYS.filter((key) => MEMBER_ALLOWED.has(key));

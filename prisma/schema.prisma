@@ -456,6 +456,7 @@ model Organization {
   branches         Branch[]
   users            User[]
   roles            Role[]
+  permissionOverrides UserPermissionOverride[]
   leadSources      LeadSource[]
   leads            Lead[]
   clients          Client[]
@@ -554,6 +555,7 @@ model User {
 
   userRoles          UserRole[]     @relation("UserRoleMember")
   personalRoles      Role[]         @relation("PersonalRole")
+  permissionOverride UserPermissionOverride?
   rolesAssignedByMe  UserRole[]     @relation("UserRoleAssignedBy")
   sessions           Session[]
   loginHistories     LoginHistory[]
@@ -643,6 +645,23 @@ model Role {
   @@index([organizationId, type])
   @@index([personalForUserId])
   @@map("roles")
+}
+
+/// An employee-specific effective permission set. The employee's fixed role is
+/// unchanged; this row only overrides the permissions they receive from it.
+model UserPermissionOverride {
+  id             String   @id @default(uuid()) @db.Uuid
+  organizationId String   @map("organization_id") @db.Uuid
+  userId         String   @unique @map("user_id") @db.Uuid
+  permissionKeys Json     @default("[]") @map("permission_keys") @db.JsonB
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId])
+  @@map("user_permission_overrides")
 }
 
 /// Global permission catalogue. Permissions are defined independently of roles

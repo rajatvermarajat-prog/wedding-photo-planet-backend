@@ -259,6 +259,12 @@ export const attendanceListQuery = listQuery.extend({
   branchId: uuid.optional(),
 });
 
+export const monthlyAttendanceSummaryQuery = z.object({
+  month: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/, 'Use YYYY-MM').optional(),
+  userId: uuid.optional(),
+});
+export const employeePerformanceParams = z.object({ userId: uuid });
+
 export const markAttendanceSchema = z.object({
   userId: uuid.optional(),
   date: dateOnly,

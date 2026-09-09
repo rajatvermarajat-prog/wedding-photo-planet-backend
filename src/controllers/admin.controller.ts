@@ -44,6 +44,22 @@ export const setUserRoles = asyncHandler(async (req, res) => {
   return sendSuccess(res, user);
 });
 
+export const getUserPermissionOverride = asyncHandler(async (req, res) => {
+  const auth = requireAuthContext(req);
+  return sendSuccess(res, await roleService.getUserPermissionOverride(auth.organizationId, req.params.id));
+});
+
+export const setUserPermissionOverride = asyncHandler(async (req, res) => {
+  const auth = requireAuthContext(req);
+  const result = await roleService.setUserPermissionOverride(auth, req.params.id, req.body.permissionKeys, auditContext(req));
+  return sendSuccess(res, result);
+});
+
+export const clearUserPermissionOverride = asyncHandler(async (req, res) => {
+  const auth = requireAuthContext(req);
+  return sendSuccess(res, await roleService.clearUserPermissionOverride(auth, req.params.id, auditContext(req)));
+});
+
 export const resetUserPassword = asyncHandler(async (req, res) => {
   const auth = requireAuthContext(req);
   await userService.resetUserPassword(auth, req.params.id, req.body.newPassword, auditContext(req));

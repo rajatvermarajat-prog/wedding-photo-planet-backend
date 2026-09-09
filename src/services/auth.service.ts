@@ -64,6 +64,7 @@ const USER_SELECT = {
       },
     },
   },
+  permissionOverride: { select: { permissionKeys: true } },
 } as const;
 
 type RawUser = Awaited<ReturnType<typeof findUserForLogin>>;
@@ -94,10 +95,14 @@ function toSessionUser(user: NonNullable<RawUser>): SessionUser {
   const activeRoles = user.userRoles.filter(
     (ur) => ur.role.deletedAt === null && ur.role.status === 'ACTIVE',
   );
-  const permissions = new Set<string>();
+  const rolePermissions = new Set<string>();
   for (const { role } of activeRoles) {
-    for (const rp of role.rolePermissions) permissions.add(rp.permission.key);
+    for (const rp of role.rolePermissions) rolePermissions.add(rp.permission.key);
   }
+  const override = user.permissionOverride?.permissionKeys;
+  const permissions = Array.isArray(override) && override.every((key): key is string => typeof key === 'string')
+    ? new Set(override)
+    : rolePermissions;
   return {
     id: user.id,
     organizationId: user.organizationId,
