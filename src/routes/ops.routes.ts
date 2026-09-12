@@ -23,6 +23,7 @@ import {
   createPersonalNoteSchema,
   updatePersonalNoteSchema,
   reorderPersonalNotesSchema,
+  personalSheetSchema,
   reassignTaskSchema,
   requestLeaveSchema,
   reviewLeaveSchema,
@@ -250,3 +251,7 @@ personalNoteRouter.delete(
   validate({ params: idParam }),
   controller.removePersonalNote,
 );
+
+export const personalSheetRouter = Router();
+personalSheetRouter.get('/', controller.getPersonalSheet);
+personalSheetRouter.put('/', validate({ body: personalSheetSchema }), controller.savePersonalSheet);

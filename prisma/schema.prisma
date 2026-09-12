@@ -480,6 +480,7 @@ model Organization {
   leaveRequests    LeaveRequest[]
   personalTodos    PersonalTodo[]
   personalNotes    PersonalNote[]
+  personalSheets   PersonalSheet[]
   files            FileObject[]
   notifications    Notification[]
   auditLogs        AuditLog[]
@@ -598,6 +599,7 @@ model User {
   attendancesMarked Attendance[]   @relation("AttendanceMarkedBy")
   personalTodos     PersonalTodo[]
   personalNotes     PersonalNote[]
+  personalSheets    PersonalSheet[]
   leaveRequests     LeaveRequest[] @relation("LeaveRequestUser")
   leaveReviews      LeaveRequest[] @relation("LeaveRequestReviewer")
 
@@ -1453,6 +1455,23 @@ model PersonalNote {
   @@index([userId, sortOrder])
   @@index([organizationId, userId])
   @@map("personal_notes")
+}
+
+/// One lightweight spreadsheet document per signed-in user and organization.
+model PersonalSheet {
+  id             String   @id @default(uuid()) @db.Uuid
+  organizationId String   @map("organization_id") @db.Uuid
+  userId         String   @map("user_id") @db.Uuid
+  data           Json     @default("{}") @db.JsonB
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, userId])
+  @@index([userId])
+  @@map("personal_sheets")
 }
 
 /// Full reassignment trail — every change of task ownership is auditable.

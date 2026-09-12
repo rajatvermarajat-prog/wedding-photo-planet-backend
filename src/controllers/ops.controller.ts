@@ -6,6 +6,7 @@ import * as freelancerService from '../services/freelancer.service';
 import * as attendanceService from '../services/attendance.service';
 import * as personalTodoService from '../services/personalTodo.service';
 import * as personalNoteService from '../services/personalNote.service';
+import * as personalSheetService from '../services/personalSheet.service';
 import { forbidden } from '../utils/errors';
 import { createPerformanceReportPdf } from '../utils/performance-report-pdf';
 
@@ -325,4 +326,14 @@ export const removePersonalNote = asyncHandler(async (req, res) => {
   const auth = requireAuthContext(req);
   await personalNoteService.deletePersonalNote(auth, req.params.id);
   return sendNoContent(res);
+});
+
+export const getPersonalSheet = asyncHandler(async (req, res) => {
+  const auth = requireAuthContext(req);
+  return sendSuccess(res, await personalSheetService.getPersonalSheet(auth));
+});
+
+export const savePersonalSheet = asyncHandler(async (req, res) => {
+  const auth = requireAuthContext(req);
+  return sendSuccess(res, await personalSheetService.savePersonalSheet(auth, req.body));
 });

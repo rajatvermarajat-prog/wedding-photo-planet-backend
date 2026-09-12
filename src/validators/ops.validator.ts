@@ -119,6 +119,12 @@ export const reorderPersonalNotesSchema = z.object({
   ids: z.array(uuid).min(1).max(100),
 });
 
+const sheetCellValue = z.union([z.string().max(10000), z.number().finite()]);
+export const personalSheetSchema = z.object({
+  columns: z.array(z.object({ id: z.string().min(1).max(64), label: z.string().trim().min(1).max(80) })).min(1).max(100),
+  rows: z.array(z.object({ id: z.string().min(1).max(64), cells: z.record(z.string().max(64), sheetCellValue) })).max(1000),
+});
+
 // --- Deliveries -----------------------------------------------------------
 
 export const DELIVERY_STATUS = z.enum([
