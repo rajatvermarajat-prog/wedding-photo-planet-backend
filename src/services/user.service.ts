@@ -533,20 +533,29 @@ export async function deleteUser(auth: AuthContext, id: string, ctx: AuditReques
       { select: { id: true, email: true } },
     );
 
-    await tx.user.update({
-      where: { id },
-      data: { deletedAt: new Date(), deletedBy: auth.userId, status: UserStatus.DISABLED },
+    // This is deliberately a hard delete.  Employee profile, attendance,
+    // sessions, roles, settings, access requests, personal work data and
+    // notifications are cascade-related in the database.  Shoot assignments
+    // and salary records need explicit removal because they are not cascade
+    // relations, and must be cleared before the user row to satisfy FKs.
+    await tx.shootAssignment.deleteMany({ where: { userId: id } });
+    await tx.staffSalaryPayment.deleteMany({ where: { organizationId: auth.organizationId, userId: id } });
+    await tx.fileObject.deleteMany({
+      where: {
+        organizationId: auth.organizationId,
+        OR: [
+          { entityId: id },
+          { uploadedById: id, entityType: { in: ['USER', 'EMPLOYEE', 'EMPLOYEE_DOCUMENT'] } },
+        ],
+      },
     });
-    await tx.session.updateMany({
-      where: { userId: id, status: SessionStatus.ACTIVE },
-      data: { status: SessionStatus.REVOKED, revokedAt: new Date(), revokeReason: LogoutReason.ADMIN_REVOKED },
-    });
+    await tx.user.delete({ where: { id } });
 
     await recordAudit(tx, ctx, {
-      action: 'SOFT_DELETE',
+      action: 'DELETE',
       entityType: 'User',
       entityId: id,
-      summary: `User ${user.email} archived`,
+      summary: `User ${user.email} permanently deleted with employee-dependent data`,
       oldData: user,
     });
   });
