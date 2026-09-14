@@ -15,7 +15,7 @@ describe('CRM: clients, projects, events, shoots', () => {
   const createClient = async (name = 'Aarav & Diya') => {
     const response = await authed(token)
       .post(`${base}/clients`)
-      .send({ displayName: name, primaryPhone: '+919812345678', primaryEmail: 'a@example.com' })
+      .send({ displayName: name, primaryPhone: '9812345678', primaryEmail: 'a@example.com' })
       .expect(201);
     return response.body.data;
   };
@@ -35,6 +35,14 @@ describe('CRM: clients, projects, events, shoots', () => {
     return response.body.data;
   };
 
+  const grantRolePermissions = async (roleId: string, keys: string[]) => {
+    const permissions = await prisma.permission.findMany({ where: { key: { in: keys } }, select: { id: true } });
+    await prisma.rolePermission.createMany({
+      data: permissions.map((permission) => ({ roleId, permissionId: permission.id })),
+      skipDuplicates: true,
+    });
+  };
+
   it('creates a client with an auto-allocated client code', async () => {
     const client = await createClient();
     expect(client.clientCode).toMatch(/^CLI-\d{4}$/);
@@ -52,7 +60,7 @@ describe('CRM: clients, projects, events, shoots', () => {
     const project = await createProject(client.id);
 
     expect(project.projectNumber).toMatch(/^PRJ-\d{4}-\d{4}$/);
-    expect(project.status).toBe('LEAD');
+    expect(project.status).toBe('UPCOMING');
     expect(project.events).toHaveLength(1);
     // Money is an exact decimal string, never a float. Trailing zeros are not
     // padded, so 450000.00 is sent as "450000".
@@ -61,7 +69,7 @@ describe('CRM: clients, projects, events, shoots', () => {
 
     const history = await prisma.projectStatusHistory.findMany({ where: { projectId: project.id } });
     expect(history).toHaveLength(1);
-    expect(history[0].newStatus).toBe('LEAD');
+    expect(history[0].newStatus).toBe('UPCOMING');
   });
 
   it('creates client, tasks, shoots and assignees in one project request', async () => {
@@ -109,6 +117,115 @@ describe('CRM: clients, projects, events, shoots', () => {
     expect(list.body.data[0].tasks[0].assignee.fullName).toBe('Member User');
   });
 
+  it('enforces project visibility by assignment for managers and employees', async () => {
+    const client = await createClient();
+    const assignedToMember = await authed(token)
+      .post(`${base}/projects`)
+      .send({
+        clientId: client.id,
+        name: 'Assigned to Member',
+        type: 'WEDDING',
+        tasks: [{ title: 'Edit teaser', assigneeId: org.member.id, status: 'ASSIGNED' }],
+      })
+      .expect(201);
+    const assignedToManager = await authed(token)
+      .post(`${base}/projects`)
+      .send({
+        clientId: client.id,
+        name: 'Managed by Manager',
+        type: 'WEDDING',
+        managerId: org.manager.id,
+      })
+      .expect(201);
+    const unassigned = await authed(token)
+      .post(`${base}/projects`)
+      .send({ clientId: client.id, name: 'Private Admin Project', type: 'WEDDING' })
+      .expect(201);
+
+    const adminList = await authed(token).get(`${base}/projects?page=1&limit=10`).expect(200);
+    expect(adminList.body.data.map((p: { id: string }) => p.id)).toEqual(
+      expect.arrayContaining([assignedToMember.body.data.id, assignedToManager.body.data.id, unassigned.body.data.id]),
+    );
+
+    const memberToken = await login(org.member);
+    const memberList = await authed(memberToken).get(`${base}/projects?page=1&limit=10`).expect(200);
+    expect(memberList.body.data.map((p: { id: string }) => p.id)).toEqual([assignedToMember.body.data.id]);
+    await authed(memberToken).get(`${base}/projects/${assignedToMember.body.data.id}`).expect(200);
+    await authed(memberToken).get(`${base}/projects/${unassigned.body.data.id}`).expect(404);
+
+    const managerToken = await login(org.manager);
+    const managerList = await authed(managerToken).get(`${base}/projects?page=1&limit=10`).expect(200);
+    expect(managerList.body.data.map((p: { id: string }) => p.id)).toEqual([assignedToManager.body.data.id]);
+    await authed(managerToken).get(`${base}/projects/${assignedToManager.body.data.id}`).expect(200);
+    await authed(managerToken).get(`${base}/projects/${unassigned.body.data.id}`).expect(404);
+  });
+
+  it('enforces feature-level permissions inside an authorized project', async () => {
+    const client = await createClient();
+    const assignedToMember = await authed(token)
+      .post(`${base}/projects`)
+      .send({
+        clientId: client.id,
+        name: 'Feature Scoped Member Project',
+        type: 'WEDDING',
+        totalQuotation: '450000.00',
+        tasks: [{ title: 'Cull images', assigneeId: org.member.id, status: 'ASSIGNED' }],
+      })
+      .expect(201);
+    const assignedToManager = await authed(token)
+      .post(`${base}/projects`)
+      .send({
+        clientId: client.id,
+        name: 'Feature Scoped Manager Project',
+        type: 'WEDDING',
+        managerId: org.manager.id,
+        totalQuotation: '550000.00',
+      })
+      .expect(201);
+    const unassigned = await authed(token)
+      .post(`${base}/projects`)
+      .send({ clientId: client.id, name: 'Feature Scoped Private Project', type: 'WEDDING', totalQuotation: '650000.00' })
+      .expect(201);
+
+    await authed(token)
+      .post(`${base}/payments`)
+      .set('Idempotency-Key', 'admin-payment-assigned-manager')
+      .send({
+        clientId: client.id,
+        projectId: assignedToManager.body.data.id,
+        amount: '25000.00',
+        paymentDate: '2026-12-01',
+        paymentMethod: 'UPI',
+      })
+      .expect(201);
+    await authed(token)
+      .post(`${base}/projects/${assignedToMember.body.data.id}/payment-milestones`)
+      .send({ title: 'Booking', amount: '100000.00', dueDate: '2026-11-01', status: 'PENDING' })
+      .expect(201);
+
+    const memberToken = await login(org.member);
+    const memberProject = await authed(memberToken)
+      .get(`${base}/projects/${assignedToMember.body.data.id}`)
+      .expect(200);
+    expect(memberProject.body.data.totalQuotation).toBeNull();
+    expect(memberProject.body.data.paymentMilestones).toBeUndefined();
+    expect(memberProject.body.data.payments).toBeUndefined();
+    await authed(memberToken).get(`${base}/projects/${assignedToMember.body.data.id}/payment-milestones`).expect(403);
+    await authed(memberToken).get(`${base}/payments?projectId=${assignedToMember.body.data.id}`).expect(403);
+
+    await grantRolePermissions(org.roleIds.MANAGER, ['PAYMENT_VIEW', 'PROJECT_FINANCIAL_VIEW', 'PAYMENT_MILESTONE_VIEW']);
+    const managerToken = await login(org.manager);
+    const managerProject = await authed(managerToken)
+      .get(`${base}/projects/${assignedToManager.body.data.id}`)
+      .expect(200);
+    expect(managerProject.body.data.totalQuotation).toBe('550000');
+    const managerPayments = await authed(managerToken)
+      .get(`${base}/payments?projectId=${assignedToManager.body.data.id}`)
+      .expect(200);
+    expect(managerPayments.body.data).toHaveLength(1);
+    await authed(managerToken).get(`${base}/payments?projectId=${unassigned.body.data.id}`).expect(404);
+  });
+
   it('rolls the whole project creation back when the client does not exist', async () => {
     const before = await prisma.project.count();
     const response = await authed(token)
@@ -123,7 +240,7 @@ describe('CRM: clients, projects, events, shoots', () => {
     const client = await createClient();
     const project = await createProject(client.id);
 
-    // LEAD -> COMPLETED is not a legal jump.
+    // UPCOMING -> COMPLETED is not a legal jump.
     const illegal = await authed(token)
       .patch(`${base}/projects/${project.id}/status`)
       .send({ status: 'COMPLETED' });
@@ -138,7 +255,7 @@ describe('CRM: clients, projects, events, shoots', () => {
       where: { projectId: project.id },
       orderBy: { createdAt: 'asc' },
     });
-    expect(history.map((h) => h.newStatus)).toEqual(['LEAD', 'CONFIRMED']);
+    expect(history.map((h) => h.newStatus)).toEqual(['UPCOMING', 'CONFIRMED']);
     expect(history[1].reason).toBe('Advance received');
     expect(history[1].changedById).toBe(org.admin.id);
   });
@@ -236,7 +353,7 @@ describe('CRM: clients, projects, events, shoots', () => {
   it('converts a lead into a client exactly once', async () => {
     const lead = await authed(token)
       .post(`${base}/leads`)
-      .send({ name: 'Karan & Simran', phone: '+919900112233', estimatedValue: '300000.00' })
+      .send({ name: 'Karan & Simran', phone: '9900112233', estimatedValue: '300000.00' })
       .expect(201);
 
     const converted = await authed(token)
@@ -256,11 +373,11 @@ describe('CRM: clients, projects, events, shoots', () => {
   it('scopes lead lists and direct detail access to the assigned employee', async () => {
     const memberLead = await authed(token)
       .post(`${base}/leads`)
-      .send({ name: 'Assigned Couple', phone: '+919900112234', ownerId: org.member.id })
+      .send({ name: 'Assigned Couple', phone: '9900112234', ownerId: org.member.id })
       .expect(201);
     const otherLead = await authed(token)
       .post(`${base}/leads`)
-      .send({ name: 'Another Couple', phone: '+919900112235', ownerId: org.manager.id })
+      .send({ name: 'Another Couple', phone: '9900112235', ownerId: org.manager.id })
       .expect(201);
 
     const memberToken = await login(org.member);

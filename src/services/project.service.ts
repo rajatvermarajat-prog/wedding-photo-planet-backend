@@ -64,6 +64,56 @@ const PROJECT_CREATE_INCLUDE = {
 
 type Tx = Prisma.TransactionClient;
 
+function canViewAllProjects(auth: AuthContext) {
+  return auth.permissions.has('PROJECT_VIEW_ALL');
+}
+
+function assignedProjectWhere(auth: AuthContext): Prisma.ProjectWhereInput {
+  if (canViewAllProjects(auth)) return {};
+  return {
+    OR: [
+      { managerId: auth.userId },
+      { tasks: { some: { assigneeId: auth.userId, deletedAt: null } } },
+      { shoots: { some: { deletedAt: null, assignments: { some: { userId: auth.userId } } } } },
+    ],
+  };
+}
+
+function scopedProjectWhere(auth: AuthContext, extra?: Prisma.ProjectWhereInput): Prisma.ProjectWhereInput {
+  return andWhere(
+    { organizationId: auth.organizationId, deletedAt: null },
+    assignedProjectWhere(auth),
+    extra,
+  );
+}
+
+export async function assertCanAccessProject(auth: AuthContext, projectId: string) {
+  const project = await prisma.project.findFirst({
+    where: scopedProjectWhere(auth, { id: projectId }),
+    select: { id: true },
+  });
+  if (!project) throw notFound('Project');
+}
+
+function redactProjectForFeatureAccess<T extends Record<string, any>>(auth: AuthContext, project: T): T {
+  const canViewFinancials = auth.permissions.has('PROJECT_FINANCIAL_VIEW');
+  const canViewMilestones = auth.permissions.has('PAYMENT_MILESTONE_VIEW');
+  const canViewPayments = auth.permissions.has('PAYMENT_VIEW');
+  const canViewClient = auth.permissions.has('CLIENT_VIEW');
+  const next: Record<string, any> = { ...project };
+  if (!canViewFinancials) {
+    next.totalQuotation = null;
+    next.incomes = undefined;
+    next.expenses = undefined;
+  }
+  if (!canViewMilestones) next.paymentMilestones = undefined;
+  if (!canViewPayments) next.payments = undefined;
+  if (!canViewClient && next.client) {
+    next.client = { id: next.client.id, clientCode: next.client.clientCode ?? null, displayName: next.name, primaryPhone: null };
+  }
+  return next as T;
+}
+
 async function loadCreatedProject(tx: Tx, organizationId: string, projectId: string) {
   return findScoped<Record<string, unknown>>(tx.project, organizationId, projectId, 'Project', {
     include: PROJECT_CREATE_INCLUDE,
@@ -331,12 +381,12 @@ export interface ProjectListQuery {
   sortOrder?: string;
 }
 
-export function listProjects(organizationId: string, query: ProjectListQuery) {
+export function listProjects(auth: AuthContext, query: ProjectListQuery) {
   const sort = resolveSort(query.sortBy, query.sortOrder, SORTABLE, 'createdAt');
   const weddingDate = dateRangeFilter(query.from, query.to);
   return paginate(prisma.project, {
     where: andWhere(
-      { organizationId, deletedAt: null },
+      scopedProjectWhere(auth),
       query.status ? { status: query.status } : undefined,
       query.isUrgent === undefined ? undefined : { isUrgent: query.isUrgent },
       query.type ? { type: query.type } : undefined,
@@ -356,11 +406,15 @@ export function listProjects(organizationId: string, query: ProjectListQuery) {
       paymentMilestones: { select: { id: true, amount: true, status: true } },
       _count: { select: { events: true, shoots: true, tasks: true, deliveries: true } },
     },
-  });
+  }).then((result) => ({
+    ...result,
+    items: result.items.map((project) => redactProjectForFeatureAccess(auth, project as Record<string, any>)),
+  }));
 }
 
-export async function getProject(organizationId: string, id: string) {
-  const project = await findScoped<Record<string, any>>(prisma.project, organizationId, id, 'Project', {
+export async function getProject(auth: AuthContext, id: string) {
+  const project = await prisma.project.findFirst({
+    where: scopedProjectWhere(auth, { id }),
     include: {
       client: { include: { contacts: true, addresses: true } },
       manager: { select: { id: true, fullName: true, email: true } },
@@ -381,6 +435,7 @@ export async function getProject(organizationId: string, id: string) {
       },
     },
   });
+  if (!project) throw notFound('Project');
 
   let meta: { dataBackup?: Record<string, unknown>; deliveryStatus?: Record<string, unknown> } = {};
   if (project.otherClientDetails) {
@@ -391,11 +446,11 @@ export async function getProject(organizationId: string, id: string) {
     }
   }
 
-  return {
+  return redactProjectForFeatureAccess(auth, {
     ...project,
     dataBackup: meta.dataBackup || null,
     deliveryStatus: meta.deliveryStatus || null,
-  };
+  });
 }
 
 /** Removes only the planned instalment; recorded payments and project totals stay intact. */
@@ -405,6 +460,8 @@ export async function deletePaymentMilestone(
   ctx: AuditRequestContext,
 ) {
   return prisma.$transaction(async (tx) => {
+    const project = await tx.project.findFirst({ where: scopedProjectWhere(auth, { id: projectId }), select: { id: true } });
+    if (!project) throw notFound('Project');
     const milestone = await tx.paymentMilestone.findFirst({
       where: { id: milestoneId, projectId, organizationId: auth.organizationId },
       select: { id: true, title: true, projectId: true },
@@ -435,8 +492,10 @@ export async function deletePaymentMilestone(
   });
 }
 
-export function listPaymentMilestones(organizationId: string, projectId: string) {
-  return prisma.paymentMilestone.findMany({ where: { organizationId, projectId }, orderBy: { createdAt: 'asc' } });
+export async function listPaymentMilestones(auth: AuthContext, projectId: string) {
+  await assertCanAccessProject(auth, projectId);
+  if (!auth.permissions.has('PAYMENT_MILESTONE_VIEW')) throw forbidden('PAYMENT_MILESTONE_VIEW permission is required.');
+  return prisma.paymentMilestone.findMany({ where: { organizationId: auth.organizationId, projectId }, orderBy: { createdAt: 'asc' } });
 }
 
 export interface PaymentMilestoneInput {
@@ -453,7 +512,9 @@ export async function createPaymentMilestone(
   auth: AuthContext, projectId: string, input: PaymentMilestoneInput, ctx: AuditRequestContext,
 ) {
   return prisma.$transaction(async (tx) => {
-    await findScoped(tx.project, auth.organizationId, projectId, 'Project', { select: { id: true } });
+    if (!auth.permissions.has('PAYMENT_MILESTONE_MANAGE')) throw forbidden('PAYMENT_MILESTONE_MANAGE permission is required.');
+    const project = await tx.project.findFirst({ where: scopedProjectWhere(auth, { id: projectId }), select: { id: true } });
+    if (!project) throw notFound('Project');
     const { percentage: _percentage, ...milestoneData } = input;
     const milestone = await tx.paymentMilestone.create({
       data: { organizationId: auth.organizationId, projectId, ...milestoneData },
@@ -470,6 +531,9 @@ export async function updatePaymentMilestone(
   auth: AuthContext, projectId: string, milestoneId: string, input: PaymentMilestoneInput, ctx: AuditRequestContext,
 ) {
   return prisma.$transaction(async (tx) => {
+    if (!auth.permissions.has('PAYMENT_MILESTONE_MANAGE')) throw forbidden('PAYMENT_MILESTONE_MANAGE permission is required.');
+    const project = await tx.project.findFirst({ where: scopedProjectWhere(auth, { id: projectId }), select: { id: true } });
+    if (!project) throw notFound('Project');
     const existing = await tx.paymentMilestone.findFirst({
       where: { id: milestoneId, projectId, organizationId: auth.organizationId },
     });
@@ -558,6 +622,7 @@ export async function createProject(
   ctx: AuditRequestContext,
 ) {
   return prisma.$transaction(async (tx) => {
+    if (!auth.permissions.has('PAYMENT_MILESTONE_MANAGE')) throw forbidden('PAYMENT_MILESTONE_MANAGE permission is required.');
     assertNestedCreatePermissions(auth, input);
     const clientId = await resolveProjectClient(tx, auth, input, ctx);
 
@@ -650,12 +715,10 @@ export async function updateProject(
   ctx: AuditRequestContext,
 ) {
   return prisma.$transaction(async (tx) => {
-    const existing = await findScoped<Record<string, unknown>>(
-      tx.project,
-      auth.organizationId,
-      id,
-      'Project',
-    );
+    const existing = await tx.project.findFirst({
+      where: scopedProjectWhere(auth, { id }),
+    });
+    if (!existing) throw notFound('Project');
 
     const updated = await tx.project.update({
       where: { id },
@@ -698,12 +761,11 @@ export async function changeProjectStatus(
   ctx: AuditRequestContext,
 ) {
   return prisma.$transaction(async (tx) => {
-    const project = await findScoped<{ id: string; status: ProjectStatus; projectNumber: string }>(
-      tx.project,
-      auth.organizationId,
-      id,
-      'Project',
-    );
+    const project = await tx.project.findFirst({
+      where: scopedProjectWhere(auth, { id }),
+      select: { id: true, status: true, projectNumber: true },
+    });
+    if (!project) throw notFound('Project');
 
     if (project.status === newStatus) {
       throw conflict(`Project is already ${newStatus}`);
@@ -749,12 +811,11 @@ export async function changeProjectStatus(
 
 export async function deleteProject(auth: AuthContext, id: string, ctx: AuditRequestContext) {
   return prisma.$transaction(async (tx) => {
-    const project = await findScoped<{ id: string; projectNumber: string }>(
-      tx.project,
-      auth.organizationId,
-      id,
-      'Project',
-    );
+    const project = await tx.project.findFirst({
+      where: scopedProjectWhere(auth, { id }),
+      select: { id: true, projectNumber: true },
+    });
+    if (!project) throw notFound('Project');
 
     // A user-initiated delete is a permanent removal. Database foreign-key
     // actions remove project-owned records (shoots, tasks, deliveries, etc.)
@@ -771,9 +832,10 @@ export async function deleteProject(auth: AuthContext, id: string, ctx: AuditReq
   });
 }
 
-export function getProjectStatusHistory(organizationId: string, projectId: string) {
+export async function getProjectStatusHistory(auth: AuthContext, projectId: string) {
+  await assertCanAccessProject(auth, projectId);
   return prisma.projectStatusHistory.findMany({
-    where: { project: { id: projectId, organizationId } },
+    where: { project: { id: projectId, organizationId: auth.organizationId } },
     orderBy: { createdAt: 'desc' },
     include: { changedBy: { select: { id: true, fullName: true } } },
   });
@@ -786,12 +848,11 @@ export async function updateProjectDataBackup(
   ctx: AuditRequestContext,
 ) {
   return prisma.$transaction(async (tx) => {
-    const existing = await findScoped<{ id: string; otherClientDetails: string | null }>(
-      tx.project,
-      auth.organizationId,
-      projectId,
-      'Project',
-    );
+    const existing = await tx.project.findFirst({
+      where: scopedProjectWhere(auth, { id: projectId }),
+      select: { id: true, otherClientDetails: true },
+    });
+    if (!existing) throw notFound('Project');
     let parsed: Record<string, unknown> = {};
     if (existing.otherClientDetails) {
       try {
@@ -823,12 +884,11 @@ export async function updateProjectDeliveries(
   ctx: AuditRequestContext,
 ) {
   return prisma.$transaction(async (tx) => {
-    const existing = await findScoped<{ id: string; otherClientDetails: string | null }>(
-      tx.project,
-      auth.organizationId,
-      projectId,
-      'Project',
-    );
+    const existing = await tx.project.findFirst({
+      where: scopedProjectWhere(auth, { id: projectId }),
+      select: { id: true, otherClientDetails: true },
+    });
+    if (!existing) throw notFound('Project');
     let parsed: Record<string, unknown> = {};
     if (existing.otherClientDetails) {
       try {
