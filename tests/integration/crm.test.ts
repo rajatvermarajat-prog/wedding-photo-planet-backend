@@ -55,6 +55,80 @@ describe('CRM: clients, projects, events, shoots', () => {
     expect(first.clientCode).not.toBe(second.clientCode);
   });
 
+  it('lists stable backend employee codes without mutating team rows', async () => {
+    const before = await prisma.user.findUniqueOrThrow({
+      where: { id: org.member.id },
+      select: { employeeCode: true, updatedAt: true },
+    });
+
+    const response = await authed(token).get(`${base}/team?page=1&limit=10`).expect(200);
+    const member = response.body.data.find((user: { id: string }) => user.id === org.member.id);
+
+    expect(member.employeeCode).toBe(before.employeeCode);
+    expect(member.employeeCode).toMatch(/^EMP-S\d{2,}$/);
+
+    const after = await prisma.user.findUniqueOrThrow({
+      where: { id: org.member.id },
+      select: { employeeCode: true, updatedAt: true },
+    });
+    expect(after.employeeCode).toBe(before.employeeCode);
+    expect(after.updatedAt.toISOString()).toBe(before.updatedAt.toISOString());
+  });
+
+  it('automatically assigns the next employee code when creating a user', async () => {
+    const response = await authed(token)
+      .post(`${base}/users`)
+      .send({
+        fullName: 'New Employee',
+        email: 'new.employee@test-studio.test',
+        password: 'TestPassw0rd!',
+        roleIds: [org.roleIds.MEMBER],
+      })
+      .expect(201);
+
+    expect(response.body.data.employeeCode).toBe('EMP-S04');
+  });
+
+  it('validates manually supplied employee codes and rejects duplicates', async () => {
+    await authed(token)
+      .post(`${base}/users`)
+      .send({
+        fullName: 'Bad Employee Code',
+        email: 'bad.employee@test-studio.test',
+        password: 'TestPassw0rd!',
+        employeeCode: 'WPP-999',
+        roleIds: [org.roleIds.MEMBER],
+      })
+      .expect(400);
+
+    await authed(token)
+      .post(`${base}/users`)
+      .send({
+        fullName: 'Duplicate Employee Code',
+        email: 'duplicate.employee@test-studio.test',
+        password: 'TestPassw0rd!',
+        employeeCode: 'EMP-S01',
+        roleIds: [org.roleIds.MEMBER],
+      })
+      .expect(409);
+  });
+
+  it('allocates unique employee codes for concurrent user creation', async () => {
+    const payloads = ['one', 'two'].map((suffix) => ({
+      fullName: `Concurrent ${suffix}`,
+      email: `concurrent.${suffix}@test-studio.test`,
+      password: 'TestPassw0rd!',
+      roleIds: [org.roleIds.MEMBER],
+    }));
+
+    const responses = await Promise.all(
+      payloads.map((payload) => authed(token).post(`${base}/users`).send(payload).expect(201)),
+    );
+
+    const codes = responses.map((response) => response.body.data.employeeCode).sort();
+    expect(codes).toEqual(['EMP-S04', 'EMP-S05']);
+  });
+
   it('creates a project with its events in one transaction', async () => {
     const client = await createClient();
     const project = await createProject(client.id);

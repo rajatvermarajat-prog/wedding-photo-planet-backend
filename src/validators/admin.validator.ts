@@ -9,6 +9,7 @@ const permissionKey = z.string().refine((k) => PERMISSION_KEYS.includes(k), {
 // --- Users ----------------------------------------------------------------
 
 export const USER_STATUS = z.enum(['ACTIVE', 'INACTIVE', 'SUSPENDED', 'DISABLED']);
+const employeeCode = z.string().trim().toUpperCase().regex(/^EMP-S\d{2,}$/, 'Employee ID must use the format EMP-S01').max(32);
 
 export const userListQuery = listQuery.extend({
   status: USER_STATUS.optional(),
@@ -36,7 +37,7 @@ export const createUserSchema = z.object({
   email,
   password,
   phone: phone.optional(),
-  employeeCode: z.string().max(32).optional(),
+  employeeCode: employeeCode.optional(),
   branchId: uuid.optional(),
   roleIds: z.array(uuid).min(1, 'At least one role is required').max(10),
   profile: employeeProfileSchema.optional(),
@@ -45,7 +46,7 @@ export const createUserSchema = z.object({
 export const updateUserSchema = z.object({
   fullName: z.string().trim().min(1).max(160).optional(),
   phone: phone.optional(),
-  employeeCode: z.string().max(32).optional(),
+  employeeCode: employeeCode.optional(),
   branchId: uuid.optional(),
   status: USER_STATUS.optional(),
   profile: employeeProfileSchema.optional(),

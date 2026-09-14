@@ -1,5 +1,5 @@
 import { LogoutReason, Prisma, RoleStatus, SessionStatus, UserStatus } from '@prisma/client';
-import { prisma } from '../config/prisma';
+import { prisma, Tx } from '../config/prisma';
 import { andWhere, findScoped, paginate, searchFilter } from '../repositories/base.repository';
 import { resolveSort } from '../utils/pagination';
 import { hashPassword } from '../utils/password';
@@ -9,6 +9,8 @@ import { AuditRequestContext, recordAudit } from './audit.service';
 import { revokeAllSessions } from './auth.service';
 
 const SORTABLE = ['createdAt', 'fullName', 'email', 'lastLoginAt'] as const;
+const EMPLOYEE_CODE_PREFIX = 'EMP-S';
+const EMPLOYEE_CODE_PATTERN = /^EMP-S\d{2,}$/;
 
 const PUBLIC_SELECT = {
   id: true,
@@ -40,7 +42,57 @@ const PUBLIC_SELECT = {
   },
 } as const;
 
-export function listUsers(
+async function nextEmployeeCode(tx: Tx, organizationId: string): Promise<string> {
+  const lockKey = `employee-code:${organizationId}`;
+
+  await tx.$executeRawUnsafe('SELECT pg_advisory_xact_lock(hashtextextended($1, 0))', lockKey);
+
+  const rows = await tx.$queryRawUnsafe<{ max_seq: number | null }[]>(
+    `SELECT MAX(CAST(SUBSTRING("employee_code" FROM '[0-9]+$') AS INTEGER)) AS max_seq
+       FROM "users"
+      WHERE "organization_id" = $1::uuid
+        AND "employee_code" LIKE $2`,
+    organizationId,
+    `${EMPLOYEE_CODE_PREFIX}%`,
+  );
+
+  const next = (rows[0]?.max_seq ?? 0) + 1;
+  return `${EMPLOYEE_CODE_PREFIX}${String(next).padStart(2, '0')}`;
+}
+
+function normalizeEmployeeCode(input?: string): string | undefined {
+  const value = input?.trim().toUpperCase();
+  if (!value) return undefined;
+  if (!EMPLOYEE_CODE_PATTERN.test(value)) {
+    throw badRequest('Employee ID must use the format EMP-S01');
+  }
+  return value;
+}
+
+async function assertEmployeeCodeAvailable(
+  tx: Tx,
+  organizationId: string,
+  employeeCode: string,
+  exceptUserId?: string,
+): Promise<void> {
+  const existing = await tx.user.findFirst({
+    where: {
+      organizationId,
+      employeeCode,
+      ...(exceptUserId ? { id: { not: exceptUserId } } : {}),
+    },
+    select: { id: true },
+  });
+  if (existing) throw conflict('Employee ID is already in use');
+}
+
+function isEmployeeCodeUniqueConflict(error: unknown): boolean {
+  if (!(error instanceof Prisma.PrismaClientKnownRequestError) || error.code !== 'P2002') return false;
+  const target = error.meta?.target;
+  return Array.isArray(target) && target.includes('employee_code');
+}
+
+export async function listUsers(
   organizationId: string,
   query: {
     page?: number;
@@ -184,6 +236,12 @@ export async function createUser(auth: AuthContext, input: CreateUserInput, ctx:
     });
     if (existing) throw conflict('A user with this email already exists in the organization');
 
+    const manualEmployeeCode = normalizeEmployeeCode(input.employeeCode);
+    if (manualEmployeeCode) {
+      await assertEmployeeCodeAvailable(tx, auth.organizationId, manualEmployeeCode);
+    }
+    const employeeCode = manualEmployeeCode || await nextEmployeeCode(tx, auth.organizationId);
+
     const user = await tx.user.create({
       data: {
         organizationId: auth.organizationId,
@@ -191,7 +249,7 @@ export async function createUser(auth: AuthContext, input: CreateUserInput, ctx:
         fullName: input.fullName,
         email,
         phone: input.phone,
-        employeeCode: input.employeeCode,
+        employeeCode,
         passwordHash: await hashPassword(input.password),
         userRoles: {
           createMany: {
@@ -212,6 +270,9 @@ export async function createUser(auth: AuthContext, input: CreateUserInput, ctx:
     });
 
     return user;
+  }).catch((error: unknown) => {
+    if (isEmployeeCodeUniqueConflict(error)) throw conflict('Employee ID is already in use');
+    throw error;
   });
 }
 
@@ -230,12 +291,19 @@ export async function updateUser(
       { select: { id: true, status: true } },
     );
 
+    const employeeCode = input.employeeCode === undefined
+      ? undefined
+      : normalizeEmployeeCode(input.employeeCode);
+    if (employeeCode) {
+      await assertEmployeeCodeAvailable(tx, auth.organizationId, employeeCode, id);
+    }
+
     const updated = await tx.user.update({
       where: { id },
       data: {
         fullName: input.fullName,
         phone: input.phone,
-        employeeCode: input.employeeCode,
+        employeeCode,
         branchId: input.branchId,
         status: input.status,
         employeeProfile: input.profile
@@ -263,6 +331,9 @@ export async function updateUser(
     });
 
     return updated;
+  }).catch((error: unknown) => {
+    if (isEmployeeCodeUniqueConflict(error)) throw conflict('Employee ID is already in use');
+    throw error;
   });
 }
 
