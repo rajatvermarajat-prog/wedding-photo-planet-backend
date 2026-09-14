@@ -89,6 +89,7 @@ export async function seedTestOrganization(slug = 'test-studio'): Promise<TestOr
 
   const passwordHash = await hashPassword(PASSWORD);
 
+  let employeeSeq = 1;
   const makeUser = async (email: string, fullName: string, role: string): Promise<TestUser> => {
     const user = await prisma.user.create({
       data: {
@@ -96,6 +97,7 @@ export async function seedTestOrganization(slug = 'test-studio'): Promise<TestOr
         branchId: branch.id,
         email,
         fullName,
+        employeeCode: `EMP-S${String(employeeSeq++).padStart(2, '0')}`,
         passwordHash,
         status: 'ACTIVE',
         userRoles: { create: [{ roleId: roleIds[role] }] },

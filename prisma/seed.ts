@@ -224,21 +224,21 @@ async function main(): Promise<void> {
     {
       email: env.SEED_ADMIN_EMAIL,
       fullName: 'Studio Owner',
-      employeeCode: 'WPP-001',
+      employeeCode: 'EMP-S01',
       role: 'ADMIN' as const,
       password: env.SEED_ADMIN_PASSWORD,
     },
     {
       email: `manager@${env.SEED_ORG_SLUG}.test`,
       fullName: 'Studio Manager',
-      employeeCode: 'WPP-002',
+      employeeCode: 'EMP-S02',
       role: 'MANAGER' as const,
       password: env.SEED_ADMIN_PASSWORD,
     },
     {
       email: `member@${env.SEED_ORG_SLUG}.test`,
       fullName: 'Photo Editor',
-      employeeCode: 'WPP-003',
+      employeeCode: 'EMP-S03',
       role: 'MEMBER' as const,
       password: env.SEED_ADMIN_PASSWORD,
     },
@@ -307,10 +307,10 @@ async function seedDemoData(organizationId: string, branchId: string): Promise<v
   }
 
   const admin = await prisma.user.findFirstOrThrow({
-    where: { organizationId, employeeCode: 'WPP-001' },
+    where: { organizationId, employeeCode: 'EMP-S01' },
   });
   const member = await prisma.user.findFirstOrThrow({
-    where: { organizationId, employeeCode: 'WPP-003' },
+    where: { organizationId, employeeCode: 'EMP-S03' },
   });
   const weddingType = await prisma.eventType.findFirstOrThrow({
     where: { organizationId, name: 'Wedding' },
