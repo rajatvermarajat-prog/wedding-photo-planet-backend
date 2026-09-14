@@ -170,7 +170,7 @@ export const freelancerLedger = asyncHandler(async (req, res) => {
 
 export const listAttendance = asyncHandler(async (req, res) => {
   const auth = requireAuthContext(req);
-  const canViewTeamAttendance = auth.permissions.has('ATTENDANCE_VIEW') || auth.permissions.has('ATTENDANCE_MANAGE');
+  const canViewTeamAttendance = auth.permissions.has('ATTENDANCE_VIEW_ALL') || auth.permissions.has('ATTENDANCE_MANAGE');
   if (!canViewTeamAttendance && req.query.userId && req.query.userId !== auth.userId) {
     throw forbidden('You may only view your own attendance');
   }
@@ -183,7 +183,10 @@ export const listAttendance = asyncHandler(async (req, res) => {
 
 export const markAttendance = asyncHandler(async (req, res) => {
   const auth = requireAuthContext(req);
-  const canManageOthers = auth.permissions.has('ATTENDANCE_MANAGE');
+  const canManageOthers =
+    auth.permissions.has('ATTENDANCE_MANAGE') ||
+    auth.permissions.has('ATTENDANCE_CREATE') ||
+    auth.permissions.has('ATTENDANCE_UPDATE');
   return sendCreated(
     res,
     await attendanceService.markAttendance(auth, req.body, canManageOthers, auditContext(req)),
@@ -192,29 +195,40 @@ export const markAttendance = asyncHandler(async (req, res) => {
 
 export const attendanceSummary = asyncHandler(async (req, res) => {
   const auth = requireAuthContext(req);
+  const canViewTeamAttendance = auth.permissions.has('ATTENDANCE_VIEW_ALL') || auth.permissions.has('ATTENDANCE_MANAGE');
+  if (!canViewTeamAttendance && req.query.userId && req.query.userId !== auth.userId) {
+    throw forbidden('You may only view your own attendance');
+  }
   return sendSuccess(
     res,
-    await attendanceService.getAttendanceSummary(auth.organizationId, req.query),
+    await attendanceService.getAttendanceSummary(
+      auth.organizationId,
+      canViewTeamAttendance ? req.query : { ...req.query, userId: auth.userId },
+    ),
   );
 });
 
 export const monthlyAttendanceSummary = asyncHandler(async (req, res) => {
   const auth = requireAuthContext(req);
-  const canViewTeamAttendance = auth.permissions.has('ATTENDANCE_VIEW') || auth.permissions.has('ATTENDANCE_MANAGE');
+  const canViewTeamAttendance = auth.permissions.has('ATTENDANCE_VIEW_ALL') || auth.permissions.has('ATTENDANCE_MANAGE');
   if (!canViewTeamAttendance && req.query.userId && req.query.userId !== auth.userId) {
     throw forbidden('You may only view your own attendance');
   }
   return sendSuccess(res, await attendanceService.getMonthlyAttendanceSummary(auth.organizationId, {
     month: typeof req.query.month === 'string' ? req.query.month : undefined,
     userId: canViewTeamAttendance && typeof req.query.userId === 'string' ? req.query.userId : auth.userId,
+    includeSalary: auth.permissions.has('EMPLOYEE_SALARY_VIEW') || auth.permissions.has('EMPLOYEE_SALARY_MANAGE'),
   }));
 });
 
 export const employeePerformanceReport = asyncHandler(async (req, res) => {
   const auth = requireAuthContext(req);
-  const canViewTeamAttendance = auth.permissions.has('ATTENDANCE_VIEW') || auth.permissions.has('ATTENDANCE_MANAGE');
+  const canViewTeamAttendance = auth.permissions.has('ATTENDANCE_VIEW_ALL') || auth.permissions.has('ATTENDANCE_MANAGE');
   if (!canViewTeamAttendance && req.params.userId !== auth.userId) {
     throw forbidden('You may only view your own performance report');
+  }
+  if (!auth.permissions.has('EMPLOYEE_SALARY_VIEW') && !auth.permissions.has('EMPLOYEE_SALARY_MANAGE')) {
+    throw forbidden('You do not have permission to view salary reports');
   }
   return sendSuccess(res, await attendanceService.getEmployeePerformanceReport(
     auth.organizationId,
@@ -225,9 +239,12 @@ export const employeePerformanceReport = asyncHandler(async (req, res) => {
 
 export const downloadEmployeePerformanceReport = asyncHandler(async (req, res) => {
   const auth = requireAuthContext(req);
-  const canViewTeamAttendance = auth.permissions.has('ATTENDANCE_VIEW') || auth.permissions.has('ATTENDANCE_MANAGE');
+  const canViewTeamAttendance = auth.permissions.has('ATTENDANCE_VIEW_ALL') || auth.permissions.has('ATTENDANCE_MANAGE');
   if (!canViewTeamAttendance && req.params.userId !== auth.userId) {
     throw forbidden('You may only download your own performance report');
+  }
+  if (!auth.permissions.has('EMPLOYEE_SALARY_VIEW') && !auth.permissions.has('EMPLOYEE_SALARY_MANAGE')) {
+    throw forbidden('You do not have permission to download salary reports');
   }
   const report = await attendanceService.getEmployeePerformanceReport(
     auth.organizationId,
