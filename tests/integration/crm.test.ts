@@ -148,6 +148,53 @@ describe('CRM: clients, projects, events, shoots', () => {
     );
   });
 
+  it('honors an employee-specific self-only override even when the fixed role can view the team', async () => {
+    await prisma.userPermissionOverride.upsert({
+      where: { userId: org.manager.id },
+      create: {
+        organizationId: org.organizationId,
+        userId: org.manager.id,
+        permissionKeys: ['TEAM_VIEW_SELF'],
+      },
+      update: { permissionKeys: ['TEAM_VIEW_SELF'] },
+    });
+
+    const managerToken = await login(org.manager);
+    const selfOnly = await authed(managerToken).get(`${base}/team?page=1&limit=100`).expect(200);
+
+    expect(selfOnly.body.data.map((user: { id: string }) => user.id)).toEqual([org.manager.id]);
+    await authed(managerToken).get(`${base}/team/${org.member.id}`).expect(403);
+    await authed(managerToken).get(`${base}/team/${org.manager.id}`).expect(200);
+  });
+
+  it('does not let team-directory access open another employee profile', async () => {
+    await prisma.userPermissionOverride.upsert({
+      where: { userId: org.manager.id },
+      create: {
+        organizationId: org.organizationId,
+        userId: org.manager.id,
+        permissionKeys: ['TEAM_VIEW'],
+      },
+      update: { permissionKeys: ['TEAM_VIEW'] },
+    });
+
+    const managerToken = await login(org.manager);
+    const directory = await authed(managerToken).get(`${base}/team?page=1&limit=100`).expect(200);
+    expect(directory.body.data.map((user: { id: string }) => user.id)).toEqual(
+      expect.arrayContaining([org.member.id, org.manager.id]),
+    );
+
+    await authed(managerToken).get(`${base}/team/${org.member.id}`).expect(403);
+    await authed(managerToken).get(`${base}/team/${org.manager.id}`).expect(200);
+
+    await prisma.userPermissionOverride.update({
+      where: { userId: org.manager.id },
+      data: { permissionKeys: ['TEAM_VIEW', 'EMPLOYEE_PROFILE_VIEW'] },
+    });
+    const withProfileToken = await login(org.manager);
+    await authed(withProfileToken).get(`${base}/team/${org.member.id}`).expect(200);
+  });
+
   it('scopes attendance access to self unless all-attendance permission is granted', async () => {
     await prisma.attendance.createMany({
       data: [
@@ -196,6 +243,101 @@ describe('CRM: clients, projects, events, shoots', () => {
     expect(allAttendance.body.data.map((row: { userId: string }) => row.userId)).toEqual(
       expect.arrayContaining([org.member.id, org.manager.id]),
     );
+  });
+
+  it('separates self attendance marking from manager attendance marking', async () => {
+    await prisma.userPermissionOverride.upsert({
+      where: { userId: org.member.id },
+      create: {
+        organizationId: org.organizationId,
+        userId: org.member.id,
+        permissionKeys: ['ATTENDANCE_MARK'],
+      },
+      update: { permissionKeys: ['ATTENDANCE_MARK'] },
+    });
+    const memberToken = await login(org.member);
+
+    await authed(memberToken)
+      .post(`${base}/attendance`)
+      .send({ date: '2026-09-02', status: 'PRESENT', workLocation: 'OFFICE' })
+      .expect(201);
+
+    await authed(memberToken)
+      .post(`${base}/attendance`)
+      .send({ userId: org.manager.id, date: '2026-09-02', status: 'PRESENT', workLocation: 'OFFICE' })
+      .expect(409);
+
+    await prisma.userPermissionOverride.upsert({
+      where: { userId: org.manager.id },
+      create: {
+        organizationId: org.organizationId,
+        userId: org.manager.id,
+        permissionKeys: ['ATTENDANCE_CREATE'],
+      },
+      update: { permissionKeys: ['ATTENDANCE_CREATE'] },
+    });
+    const managerToken = await login(org.manager);
+
+    await authed(managerToken)
+      .post(`${base}/attendance`)
+      .send({ userId: org.member.id, date: '2026-09-03', status: 'PRESENT', workLocation: 'OFFICE' })
+      .expect(201);
+  });
+
+  it('scopes leave requests to self unless all-leave permission is granted', async () => {
+    await prisma.userPermissionOverride.upsert({
+      where: { userId: org.member.id },
+      create: {
+        organizationId: org.organizationId,
+        userId: org.member.id,
+        permissionKeys: ['LEAVE_REQUEST', 'LEAVE_VIEW_SELF'],
+      },
+      update: { permissionKeys: ['LEAVE_REQUEST', 'LEAVE_VIEW_SELF'] },
+    });
+    const memberToken = await login(org.member);
+
+    const ownLeave = await authed(memberToken)
+      .post(`${base}/attendance/leave`)
+      .send({ type: 'CASUAL', startDate: '2026-09-04', endDate: '2026-09-05', reason: 'Family work' })
+      .expect(201);
+
+    await prisma.leaveRequest.create({
+      data: {
+        organizationId: org.organizationId,
+        userId: org.manager.id,
+        type: 'SICK',
+        startDate: new Date('2026-09-06T00:00:00.000Z'),
+        endDate: new Date('2026-09-06T00:00:00.000Z'),
+        days: 1,
+      },
+    });
+
+    const selfOnly = await authed(memberToken).get(`${base}/attendance/leave?page=1&limit=20`).expect(200);
+    expect(selfOnly.body.data.map((leave: { id: string }) => leave.id)).toEqual([ownLeave.body.data.id]);
+
+    await authed(memberToken)
+      .get(`${base}/attendance/leave?userId=${org.manager.id}&page=1&limit=20`)
+      .expect(403);
+
+    await prisma.userPermissionOverride.upsert({
+      where: { userId: org.manager.id },
+      create: {
+        organizationId: org.organizationId,
+        userId: org.manager.id,
+        permissionKeys: ['LEAVE_VIEW', 'LEAVE_APPROVE'],
+      },
+      update: { permissionKeys: ['LEAVE_VIEW', 'LEAVE_APPROVE'] },
+    });
+    const managerToken = await login(org.manager);
+    const allLeave = await authed(managerToken).get(`${base}/attendance/leave?page=1&limit=20`).expect(200);
+    expect(allLeave.body.data.map((leave: { userId: string }) => leave.userId)).toEqual(
+      expect.arrayContaining([org.member.id, org.manager.id]),
+    );
+
+    await authed(managerToken)
+      .post(`${base}/attendance/leave/${ownLeave.body.data.id}/review`)
+      .send({ decision: 'APPROVE', note: 'Approved' })
+      .expect(200);
   });
 
   it('creates a project with its events in one transaction', async () => {

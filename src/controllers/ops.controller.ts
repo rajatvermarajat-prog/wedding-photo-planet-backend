@@ -263,9 +263,13 @@ export const downloadEmployeePerformanceReport = asyncHandler(async (req, res) =
 
 export const listLeave = asyncHandler(async (req, res) => {
   const auth = requireAuthContext(req);
+  const canViewAllLeave = auth.permissions.has('LEAVE_VIEW') || auth.permissions.has('LEAVE_APPROVE');
+  if (!canViewAllLeave && req.query.userId && req.query.userId !== auth.userId) {
+    throw forbidden('You may only view your own leave requests');
+  }
   const { items, pagination } = await attendanceService.listLeaveRequests(
     auth.organizationId,
-    req.query,
+    canViewAllLeave ? req.query : { ...req.query, userId: auth.userId },
   );
   return sendSuccess(res, items, { pagination });
 });

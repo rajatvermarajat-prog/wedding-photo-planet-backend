@@ -41,7 +41,7 @@ userRouter.post(
 );
 userRouter.get(
   '/:id',
-  requirePermission('USER_VIEW'),
+  requireAnyPermission('USER_VIEW', 'TEAM_VIEW', 'TEAM_VIEW_ALL', 'TEAM_VIEW_SELF', 'EMPLOYEE_PROFILE_VIEW'),
   validate({ params: idParam }),
   controller.getUser,
 );
