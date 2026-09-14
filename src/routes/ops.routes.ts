@@ -173,7 +173,7 @@ attendanceRouter.get(
 );
 attendanceRouter.post(
   '/',
-  requirePermission('ATTENDANCE_MARK'),
+  requireAnyPermission('ATTENDANCE_MARK', 'ATTENDANCE_CREATE', 'ATTENDANCE_UPDATE', 'ATTENDANCE_MANAGE'),
   validate({ body: markAttendanceSchema }),
   controller.markAttendance,
 );
@@ -184,7 +184,7 @@ attendanceRouter.get('/performance/:userId/pdf', requireAnyPermission('ATTENDANC
 
 attendanceRouter.get(
   '/leave',
-  requirePermission('LEAVE_VIEW'),
+  requireAnyPermission('LEAVE_VIEW_SELF', 'LEAVE_VIEW', 'LEAVE_REQUEST', 'LEAVE_APPROVE'),
   validate({ query: leaveListQuery }),
   controller.listLeave,
 );

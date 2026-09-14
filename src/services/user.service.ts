@@ -161,16 +161,24 @@ export function getUser(
 }
 
 export async function getUserForAuth(auth: AuthContext, id: string) {
-  const canViewAllTeam =
-    auth.permissions.has('TEAM_VIEW_ALL') ||
-    auth.permissions.has('TEAM_VIEW') ||
-    auth.permissions.has('USER_VIEW');
-  const canViewSelf =
-    canViewAllTeam ||
-    auth.permissions.has('TEAM_VIEW_SELF') ||
-    auth.permissions.has('EMPLOYEE_PROFILE_VIEW');
-  if (!canViewSelf) throw forbidden('You do not have permission to view team members');
-  if (!canViewAllTeam && id !== auth.userId) throw forbidden('You may only view your own employee profile');
+  const canViewOwnProfile =
+    id === auth.userId &&
+    (
+      auth.permissions.has('TEAM_VIEW_SELF') ||
+      auth.permissions.has('TEAM_VIEW') ||
+      auth.permissions.has('TEAM_VIEW_ALL') ||
+      auth.permissions.has('EMPLOYEE_PROFILE_VIEW') ||
+      auth.permissions.has('USER_VIEW')
+    );
+  const canViewOtherProfile =
+    id !== auth.userId &&
+    (
+      auth.permissions.has('EMPLOYEE_PROFILE_VIEW') ||
+      auth.permissions.has('USER_VIEW')
+    );
+  if (!canViewOwnProfile && !canViewOtherProfile) {
+    throw forbidden(id === auth.userId ? 'You do not have permission to view your employee profile' : 'You do not have permission to view employee profiles');
+  }
   const user = await getUser(auth.organizationId, id) as PublicUser;
   return redactUserForAuth(user, auth);
 }
