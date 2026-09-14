@@ -74,6 +74,8 @@ export const PERMISSIONS: PermissionDefinition[] = [
   ]),
   ...define('project', [
     ['PROJECT_VIEW', 'View projects'],
+    ['PROJECT_VIEW_ALL', 'View all projects', true],
+    ['PROJECT_FINANCIAL_VIEW', 'View project financial totals', true],
     ['PROJECT_CREATE', 'Create project'],
     ['PROJECT_UPDATE', 'Update project'],
     ['PROJECT_DELETE', 'Delete project', true],
@@ -139,6 +141,8 @@ export const PERMISSIONS: PermissionDefinition[] = [
     ['PAYMENT_CREATE', 'Record payment', true],
     ['PAYMENT_UPDATE', 'Update payment metadata', true],
     ['PAYMENT_ALLOCATE', 'Allocate a payment across invoices', true],
+    ['PAYMENT_MILESTONE_VIEW', 'View project payment milestones', true],
+    ['PAYMENT_MILESTONE_MANAGE', 'Manage project payment milestones', true],
   ]),
   ...define('expense', [
     ['EXPENSE_VIEW', 'View expenses', true],
@@ -201,6 +205,14 @@ export type SystemRole = (typeof SYSTEM_ROLES)[number];
 const MANAGER_EXCLUDED = new Set([
   'ORG_UPDATE',
   'USER_DELETE',
+  'PROJECT_VIEW_ALL',
+  'PROJECT_FINANCIAL_VIEW',
+  'PAYMENT_VIEW',
+  'PAYMENT_CREATE',
+  'PAYMENT_UPDATE',
+  'PAYMENT_ALLOCATE',
+  'PAYMENT_MILESTONE_VIEW',
+  'PAYMENT_MILESTONE_MANAGE',
   'ROLE_CREATE',
   'ROLE_UPDATE',
   'ROLE_DELETE',

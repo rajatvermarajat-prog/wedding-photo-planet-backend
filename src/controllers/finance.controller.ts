@@ -5,6 +5,7 @@ import * as invoiceService from '../services/invoice.service';
 import * as paymentService from '../services/payment.service';
 import * as expenseService from '../services/expense.service';
 import * as incomeService from '../services/income.service';
+import * as projectService from '../services/project.service';
 import { prisma } from '../config/prisma';
 import { startOfMonth } from '../utils/date';
 
@@ -75,6 +76,9 @@ export const updateInvoiceStatus = asyncHandler(async (req, res) => {
 
 export const listPayments = asyncHandler(async (req, res) => {
   const auth = requireAuthContext(req);
+  if (typeof req.query.projectId === 'string') {
+    await projectService.assertCanAccessProject(auth, req.query.projectId);
+  }
   const { items, pagination } = await paymentService.listPayments(auth.organizationId, req.query);
   return sendSuccess(res, items.map((item: any) => expenseService.withPaymentStatus(item)), { pagination });
 });
@@ -86,6 +90,7 @@ export const getPayment = asyncHandler(async (req, res) => {
 
 export const createPayment = asyncHandler(async (req, res) => {
   const auth = requireAuthContext(req);
+  if (req.body.projectId) await projectService.assertCanAccessProject(auth, req.body.projectId);
   return sendCreated(res, await paymentService.createPayment(auth, req.body, auditContext(req)));
 });
 

@@ -75,6 +75,9 @@ export async function seedTestOrganization(slug = 'test-studio'): Promise<TestOr
       data: { organizationId: organization.id, name: roleName, type: RoleType.SYSTEM },
     });
     roleIds[roleName] = role.id;
+    roleIds[roleName.toUpperCase()] = role.id;
+    if (roleName === 'Admin') roleIds.ADMIN = role.id;
+    if (roleName === 'Manager') roleIds.MANAGER = role.id;
     await prisma.rolePermission.createMany({
       data: permissionsForSystemRole(roleName)
         .map((key) => permissionIds.get(key))
@@ -103,7 +106,8 @@ export async function seedTestOrganization(slug = 'test-studio'): Promise<TestOr
 
   const admin = await makeUser(`admin@${slug}.test`, 'Admin User', 'ADMIN');
   const manager = await makeUser(`manager@${slug}.test`, 'Manager User', 'MANAGER');
-  const member = await makeUser(`member@${slug}.test`, 'Member User', 'MEMBER');
+  const member = await makeUser(`member@${slug}.test`, 'Member User', 'Account Manager');
+  roleIds.MEMBER = roleIds['ACCOUNT MANAGER'];
 
   const category = await prisma.expenseCategory.create({
     data: { organizationId: organization.id, name: 'Travel & Fuel' },

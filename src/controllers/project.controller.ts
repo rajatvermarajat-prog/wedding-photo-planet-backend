@@ -7,15 +7,20 @@ import * as clientAssetService from '../services/projectClientAsset.service';
 
 // --- Projects -------------------------------------------------------------
 
+export async function assertProjectAccess(req: Parameters<typeof requireAuthContext>[0]) {
+  const auth = requireAuthContext(req);
+  await projectService.assertCanAccessProject(auth, req.params.id);
+}
+
 export const list = asyncHandler(async (req, res) => {
   const auth = requireAuthContext(req);
-  const { items, pagination } = await projectService.listProjects(auth.organizationId, req.query);
+  const { items, pagination } = await projectService.listProjects(auth, req.query);
   return sendSuccess(res, items, { pagination });
 });
 
 export const get = asyncHandler(async (req, res) => {
   const auth = requireAuthContext(req);
-  return sendSuccess(res, await projectService.getProject(auth.organizationId, req.params.id));
+  return sendSuccess(res, await projectService.getProject(auth, req.params.id));
 });
 
 export const create = asyncHandler(async (req, res) => {
@@ -69,14 +74,14 @@ export const updatePaymentMilestone = asyncHandler(async (req, res) => {
 
 export const listPaymentMilestones = asyncHandler(async (req, res) => {
   const auth = requireAuthContext(req);
-  return sendSuccess(res, await projectService.listPaymentMilestones(auth.organizationId, req.params.id));
+  return sendSuccess(res, await projectService.listPaymentMilestones(auth, req.params.id));
 });
 
 export const statusHistory = asyncHandler(async (req, res) => {
   const auth = requireAuthContext(req);
   return sendSuccess(
     res,
-    await projectService.getProjectStatusHistory(auth.organizationId, req.params.id),
+    await projectService.getProjectStatusHistory(auth, req.params.id),
   );
 });
 
@@ -92,12 +97,37 @@ export const updateDeliveries = asyncHandler(async (req, res) => {
 
 
 
-export const listClientAssets = asyncHandler(async (req, res) => sendSuccess(res, await clientAssetService.getProjectClientAssets(requireAuthContext(req).organizationId, req.params.id)));
-export const createClientAssetUploadIntent = asyncHandler(async (req, res) => sendCreated(res, await clientAssetService.createProjectClientAssetUploadIntent(requireAuthContext(req), req.params.id, req.body)));
-export const createClientAsset = asyncHandler(async (req, res) => sendCreated(res, await clientAssetService.createProjectClientAsset(requireAuthContext(req), req.params.id, req.body, auditContext(req))));
-export const updateClientAsset = asyncHandler(async (req, res) => sendSuccess(res, await clientAssetService.updateProjectClientAsset(requireAuthContext(req), req.params.id, req.params.assetId, req.body, auditContext(req))));
-export const deleteClientAsset = asyncHandler(async (req, res) => { await clientAssetService.deleteProjectClientAsset(requireAuthContext(req), req.params.id, req.params.assetId, auditContext(req)); return sendNoContent(res); });
-export const clientAssetDownloadUrl = asyncHandler(async (req, res) => sendSuccess(res, await clientAssetService.getProjectClientAssetDownloadUrl(requireAuthContext(req).organizationId, req.params.id, req.params.assetId)));
+export const listClientAssets = asyncHandler(async (req, res) => {
+  const auth = requireAuthContext(req);
+  await projectService.assertCanAccessProject(auth, req.params.id);
+  return sendSuccess(res, await clientAssetService.getProjectClientAssets(auth.organizationId, req.params.id));
+});
+export const createClientAssetUploadIntent = asyncHandler(async (req, res) => {
+  const auth = requireAuthContext(req);
+  await projectService.assertCanAccessProject(auth, req.params.id);
+  return sendCreated(res, await clientAssetService.createProjectClientAssetUploadIntent(auth, req.params.id, req.body));
+});
+export const createClientAsset = asyncHandler(async (req, res) => {
+  const auth = requireAuthContext(req);
+  await projectService.assertCanAccessProject(auth, req.params.id);
+  return sendCreated(res, await clientAssetService.createProjectClientAsset(auth, req.params.id, req.body, auditContext(req)));
+});
+export const updateClientAsset = asyncHandler(async (req, res) => {
+  const auth = requireAuthContext(req);
+  await projectService.assertCanAccessProject(auth, req.params.id);
+  return sendSuccess(res, await clientAssetService.updateProjectClientAsset(auth, req.params.id, req.params.assetId, req.body, auditContext(req)));
+});
+export const deleteClientAsset = asyncHandler(async (req, res) => {
+  const auth = requireAuthContext(req);
+  await projectService.assertCanAccessProject(auth, req.params.id);
+  await clientAssetService.deleteProjectClientAsset(auth, req.params.id, req.params.assetId, auditContext(req));
+  return sendNoContent(res);
+});
+export const clientAssetDownloadUrl = asyncHandler(async (req, res) => {
+  const auth = requireAuthContext(req);
+  await projectService.assertCanAccessProject(auth, req.params.id);
+  return sendSuccess(res, await clientAssetService.getProjectClientAssetDownloadUrl(auth.organizationId, req.params.id, req.params.assetId));
+});
 
 // --- Events ---------------------------------------------------------------
 
