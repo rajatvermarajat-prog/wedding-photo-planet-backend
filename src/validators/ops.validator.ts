@@ -293,6 +293,7 @@ export const leaveListQuery = listQuery.extend({
 
 export const requestLeaveSchema = z
   .object({
+    userId: uuid.optional(),
     type: LEAVE_TYPE.optional(),
     startDate: dateOnly,
     endDate: dateOnly,

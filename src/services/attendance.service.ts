@@ -279,18 +279,25 @@ export function listLeaveRequests(
 
 export async function requestLeave(
   auth: AuthContext,
-  input: { type?: LeaveType; startDate: string; endDate: string; reason?: string },
+  input: { userId?: string; type?: LeaveType; startDate: string; endDate: string; reason?: string },
   ctx: AuditRequestContext,
 ) {
   const start = toDateOnly(input.startDate);
   const end = toDateOnly(input.endDate);
   if (end < start) throw badRequest('endDate cannot be before startDate');
 
+  const userId = input.userId ?? auth.userId;
+  const user = await prisma.user.findFirst({
+    where: { id: userId, organizationId: auth.organizationId, deletedAt: null },
+    select: { id: true },
+  });
+  if (!user) throw notFound('Employee');
+
   const days = Math.round((end.getTime() - start.getTime()) / 86_400_000) + 1;
 
   const overlapping = await prisma.leaveRequest.count({
     where: {
-      userId: auth.userId,
+      userId,
       status: { in: ['PENDING', 'APPROVED'] },
       startDate: { lte: end },
       endDate: { gte: start },
@@ -301,7 +308,7 @@ export async function requestLeave(
   const leave = await prisma.leaveRequest.create({
     data: {
       organizationId: auth.organizationId,
-      userId: auth.userId,
+      userId,
       type: input.type ?? LeaveType.CASUAL,
       startDate: start,
       endDate: end,
