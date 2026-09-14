@@ -340,6 +340,44 @@ describe('CRM: clients, projects, events, shoots', () => {
       .expect(200);
   });
 
+  it('allows managers to apply leave for an employee but blocks self-service spoofing', async () => {
+    await prisma.userPermissionOverride.upsert({
+      where: { userId: org.member.id },
+      create: {
+        organizationId: org.organizationId,
+        userId: org.member.id,
+        permissionKeys: ['LEAVE_REQUEST', 'LEAVE_VIEW_SELF'],
+      },
+      update: { permissionKeys: ['LEAVE_REQUEST', 'LEAVE_VIEW_SELF'] },
+    });
+    const memberToken = await login(org.member);
+
+    await authed(memberToken)
+      .post(`${base}/attendance/leave`)
+      .send({
+        userId: org.manager.id,
+        type: 'PERSONAL',
+        startDate: '2026-09-07',
+        endDate: '2026-09-07',
+      })
+      .expect(403);
+
+    const managerToken = await login(org.manager);
+    const delegated = await authed(managerToken)
+      .post(`${base}/attendance/leave`)
+      .send({
+        userId: org.member.id,
+        type: 'PERSONAL',
+        startDate: '2026-09-08',
+        endDate: '2026-09-09',
+        reason: 'Submitted by manager',
+      })
+      .expect(201);
+
+    expect(delegated.body.data.userId).toBe(org.member.id);
+    expect(delegated.body.data.days).toBe('2');
+  });
+
   it('creates a project with its events in one transaction', async () => {
     const client = await createClient();
     const project = await createProject(client.id);

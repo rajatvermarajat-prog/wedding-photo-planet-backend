@@ -427,7 +427,7 @@ export async function deleteRole(auth: AuthContext, id: string, ctx: AuditReques
     const names = role.userRoles.map((ur) => ur.user.fullName);
     const more = role._count.userRoles - names.length;
     throw conflict(
-      `This role is still assigned to ${role._count.userRoles} user(s). ` +
+      `This role cannot be deleted because it is currently assigned to ${role._count.userRoles} user(s). ` +
         `Reassign ${names.join(', ')}${more > 0 ? ` and ${more} other(s)` : ''} first.`,
       [{ field: 'roleId', message: 'Reassign the affected users before deleting this role' }],
     );

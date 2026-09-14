@@ -275,6 +275,9 @@ export const listLeave = asyncHandler(async (req, res) => {
 
 export const requestLeave = asyncHandler(async (req, res) => {
   const auth = requireAuthContext(req);
+  if (req.body.userId && req.body.userId !== auth.userId && !auth.permissions.has('LEAVE_APPROVE')) {
+    throw forbidden('You do not have permission to apply leave for another employee');
+  }
   return sendCreated(res, await attendanceService.requestLeave(auth, req.body, auditContext(req)));
 });
 

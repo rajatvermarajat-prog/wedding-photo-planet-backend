@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { authed, base, login } from '../helpers/api';
-import { resetDatabase, seedTestOrganization, TestOrg } from '../helpers/factory';
+import { prisma, resetDatabase, seedTestOrganization, TestOrg } from '../helpers/factory';
 
 /**
  * Custom-role lifecycle and the rules that stop role management from becoming a
@@ -28,7 +28,7 @@ describe('role management', () => {
   it('lets an admin list roles, marking system and custom roles', async () => {
     const response = await authed(adminToken).get(`${base}/roles`).expect(200);
     const names = response.body.data.map((role: { name: string }) => role.name);
-    expect(names).toEqual(expect.arrayContaining(['ADMIN', 'MANAGER', 'MEMBER']));
+    expect(names).toEqual(expect.arrayContaining(['Admin', 'Manager', 'Account Manager']));
     for (const role of response.body.data) {
       expect(role.type).toBe('SYSTEM');
       expect(role.status).toBe('ACTIVE');
@@ -144,6 +144,43 @@ describe('role management', () => {
     await authed(adminToken).delete(`${base}/roles/${unused.body.data.id}`).expect(204);
   });
 
+  it('soft-deletes an unused custom role and removes it from normal reads', async () => {
+    const unused = await createRole(adminToken, { name: 'Archive Me', permissionKeys: ['DASHBOARD_VIEW'] }).expect(201);
+    const roleId = unused.body.data.id;
+    const beforeUsers = await prisma.user.count({ where: { organizationId: org.organizationId } });
+    const beforePermissions = await prisma.permission.count();
+
+    await authed(adminToken).delete(`${base}/roles/${roleId}`).expect(204);
+
+    await authed(adminToken).get(`${base}/roles/${roleId}`).expect(404);
+    const list = await authed(adminToken).get(`${base}/roles`).expect(200);
+    expect(list.body.data.map((role: { id: string }) => role.id)).not.toContain(roleId);
+
+    const stored = await prisma.role.findUnique({ where: { id: roleId } });
+    expect(stored?.deletedAt).not.toBeNull();
+    expect(stored?.deletedBy).toBe(org.admin.id);
+    expect(await prisma.user.count({ where: { organizationId: org.organizationId } })).toBe(beforeUsers);
+    expect(await prisma.permission.count()).toBe(beforePermissions);
+  });
+
+  it('rejects deleting a role without ROLE_DELETE', async () => {
+    const managerToken = await login(org.manager);
+    const unused = await createRole(adminToken, { name: 'Protected Temp', permissionKeys: ['DASHBOARD_VIEW'] }).expect(201);
+
+    const response = await authed(managerToken).delete(`${base}/roles/${unused.body.data.id}`);
+
+    expect(response.status).toBe(403);
+    expect(response.body.error.code).toBe('FORBIDDEN');
+    await authed(adminToken).get(`${base}/roles/${unused.body.data.id}`).expect(200);
+  });
+
+  it('returns 404 when deleting a missing role', async () => {
+    const response = await authed(adminToken).delete(`${base}/roles/00000000-0000-0000-0000-000000000000`);
+
+    expect(response.status).toBe(404);
+    expect(response.body.error.code).toBe('NOT_FOUND');
+  });
+
   it('lists the employees holding a role', async () => {
     const response = await authed(adminToken)
       .get(`${base}/roles/${org.roleIds.MANAGER}/users`)
@@ -151,7 +188,7 @@ describe('role management', () => {
 
     expect(response.body.data).toHaveLength(1);
     expect(response.body.data[0].email).toBe('manager@test-studio.test');
-    expect(response.body.data[0].roles.map((r: { name: string }) => r.name)).toEqual(['MANAGER']);
+    expect(response.body.data[0].roles.map((r: { name: string }) => r.name)).toEqual(['Manager']);
   });
 
   it('does not leak the members of another organization’s role', async () => {
@@ -287,7 +324,7 @@ describe('role assignment security', () => {
       (
         await authed(token)
           .post(`${base}/clients`)
-          .send({ displayName: 'Lead Client', primaryPhone: '+919000000123' })
+          .send({ displayName: 'Lead Client', primaryPhone: '9000000123' })
       ).status,
     ).toBe(201);
     // Never granted PROJECT_DELETE or PAYMENT_VIEW.
@@ -413,7 +450,7 @@ describe('role assignment security', () => {
     // MANAGER lacks ROLE_VIEW-independent access; if it can read the list, the
     // ADMIN row must still be flagged unassignable.
     if (response.status === 200) {
-      const admin = response.body.data.find((role: { name: string }) => role.name === 'ADMIN');
+      const admin = response.body.data.find((role: { name: string }) => role.name === 'Admin');
       expect(admin.assignable).toBe(false);
     } else {
       expect(response.status).toBe(403);
