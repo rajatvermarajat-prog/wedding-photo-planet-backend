@@ -129,6 +129,75 @@ describe('CRM: clients, projects, events, shoots', () => {
     expect(codes).toEqual(['EMP-S04', 'EMP-S05']);
   });
 
+  it('scopes employee team access to self unless all-team permission is granted', async () => {
+    await prisma.employeeProfile.upsert({
+      where: { userId: org.member.id },
+      create: { userId: org.member.id, monthlySalary: 50000, dailyRate: 2000 },
+      update: { monthlySalary: 50000, dailyRate: 2000 },
+    });
+    const memberToken = await login(org.member);
+
+    const selfOnly = await authed(memberToken).get(`${base}/team?page=1&limit=10`).expect(200);
+    expect(selfOnly.body.data.map((user: { id: string }) => user.id)).toEqual([org.member.id]);
+    expect(selfOnly.body.data[0].employeeProfile.monthlySalary).toBeNull();
+
+    await grantRolePermissions(org.roleIds.MEMBER, ['TEAM_VIEW_ALL']);
+    const allTeam = await authed(memberToken).get(`${base}/team?page=1&limit=10`).expect(200);
+    expect(allTeam.body.data.map((user: { id: string }) => user.id)).toEqual(
+      expect.arrayContaining([org.admin.id, org.manager.id, org.member.id]),
+    );
+  });
+
+  it('scopes attendance access to self unless all-attendance permission is granted', async () => {
+    await prisma.attendance.createMany({
+      data: [
+        {
+          organizationId: org.organizationId,
+          branchId: org.branchId,
+          userId: org.member.id,
+          date: new Date('2026-09-01T00:00:00.000Z'),
+          status: 'PRESENT',
+          source: 'ADMIN',
+          workLocation: 'OFFICE',
+          markedById: org.admin.id,
+        },
+        {
+          organizationId: org.organizationId,
+          branchId: org.branchId,
+          userId: org.manager.id,
+          date: new Date('2026-09-01T00:00:00.000Z'),
+          status: 'PRESENT',
+          source: 'ADMIN',
+          workLocation: 'OFFICE',
+          markedById: org.admin.id,
+        },
+      ],
+    });
+    const memberToken = await login(org.member);
+
+    const selfOnly = await authed(memberToken).get(`${base}/attendance?page=1&limit=10`).expect(200);
+    expect(selfOnly.body.data).toHaveLength(1);
+    expect(selfOnly.body.data[0].userId).toBe(org.member.id);
+
+    await authed(memberToken)
+      .get(`${base}/attendance?userId=${org.manager.id}&page=1&limit=10`)
+      .expect(403);
+
+    const summary = await authed(memberToken)
+      .get(`${base}/attendance/monthly-summary?month=2026-09`)
+      .expect(200);
+    expect(summary.body.data.employees).toHaveLength(1);
+    expect(summary.body.data.employees[0].userId).toBe(org.member.id);
+    expect(summary.body.data.employees[0].dailyRate).toBeNull();
+    expect(summary.body.data.employees[0].calculatedSalary).toBeNull();
+
+    await grantRolePermissions(org.roleIds.MEMBER, ['ATTENDANCE_VIEW_ALL']);
+    const allAttendance = await authed(memberToken).get(`${base}/attendance?page=1&limit=10`).expect(200);
+    expect(allAttendance.body.data.map((row: { userId: string }) => row.userId)).toEqual(
+      expect.arrayContaining([org.member.id, org.manager.id]),
+    );
+  });
+
   it('creates a project with its events in one transaction', async () => {
     const client = await createClient();
     const project = await createProject(client.id);

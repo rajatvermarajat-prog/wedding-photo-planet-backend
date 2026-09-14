@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import * as controller from '../controllers/ops.controller';
 import { validate } from '../middleware/validate';
-import { requirePermission } from '../middleware/rbac';
+import { requireAnyPermission, requirePermission } from '../middleware/rbac';
 import { idempotent } from '../middleware/idempotency';
 import { idParam } from '../validators/common.validator';
 import {
@@ -168,6 +168,7 @@ export const attendanceRouter = Router();
 
 attendanceRouter.get(
   '/',
+  requireAnyPermission('ATTENDANCE_VIEW_SELF', 'ATTENDANCE_VIEW_ALL', 'ATTENDANCE_MANAGE'),
   validate({ query: attendanceListQuery }),
   controller.listAttendance,
 );
@@ -177,10 +178,10 @@ attendanceRouter.post(
   validate({ body: markAttendanceSchema }),
   controller.markAttendance,
 );
-attendanceRouter.get('/summary', requirePermission('ATTENDANCE_VIEW'), controller.attendanceSummary);
-attendanceRouter.get('/monthly-summary', validate({ query: monthlyAttendanceSummaryQuery }), controller.monthlyAttendanceSummary);
-attendanceRouter.get('/performance/:userId', validate({ params: employeePerformanceParams, query: monthlyAttendanceSummaryQuery }), controller.employeePerformanceReport);
-attendanceRouter.get('/performance/:userId/pdf', validate({ params: employeePerformanceParams, query: monthlyAttendanceSummaryQuery }), controller.downloadEmployeePerformanceReport);
+attendanceRouter.get('/summary', requireAnyPermission('ATTENDANCE_VIEW_SELF', 'ATTENDANCE_VIEW_ALL', 'ATTENDANCE_MANAGE'), controller.attendanceSummary);
+attendanceRouter.get('/monthly-summary', requireAnyPermission('ATTENDANCE_VIEW_SELF', 'ATTENDANCE_VIEW_ALL', 'ATTENDANCE_MANAGE'), validate({ query: monthlyAttendanceSummaryQuery }), controller.monthlyAttendanceSummary);
+attendanceRouter.get('/performance/:userId', requireAnyPermission('ATTENDANCE_VIEW_SELF', 'ATTENDANCE_VIEW_ALL', 'ATTENDANCE_MANAGE'), validate({ params: employeePerformanceParams, query: monthlyAttendanceSummaryQuery }), controller.employeePerformanceReport);
+attendanceRouter.get('/performance/:userId/pdf', requireAnyPermission('ATTENDANCE_VIEW_SELF', 'ATTENDANCE_VIEW_ALL', 'ATTENDANCE_MANAGE'), validate({ params: employeePerformanceParams, query: monthlyAttendanceSummaryQuery }), controller.downloadEmployeePerformanceReport);
 
 attendanceRouter.get(
   '/leave',

@@ -29,7 +29,7 @@ export const userRouter = Router();
 
 userRouter.get(
   '/',
-  requireAnyPermission('USER_VIEW', 'TEAM_VIEW', 'PROJECT_CREATE', 'TASK_CREATE'),
+  requireAnyPermission('USER_VIEW', 'TEAM_VIEW', 'TEAM_VIEW_ALL', 'TEAM_VIEW_SELF', 'EMPLOYEE_PROFILE_VIEW', 'PROJECT_CREATE', 'TASK_CREATE'),
   validate({ query: userListQuery }),
   controller.listUsers,
 );
@@ -51,8 +51,8 @@ userRouter.patch(
   validate({ params: idParam, body: updateUserSchema }),
   controller.updateUser,
 );
-userRouter.get('/:id/salary-payments', requirePermission('USER_VIEW'), validate({ params: idParam }), controller.listSalaryPayments);
-userRouter.put('/:id/salary-payments', requirePermission('USER_UPDATE'), validate({ params: idParam }), controller.upsertSalaryPayment);
+userRouter.get('/:id/salary-payments', requirePermission('EMPLOYEE_SALARY_VIEW'), validate({ params: idParam }), controller.listSalaryPayments);
+userRouter.put('/:id/salary-payments', requirePermission('EMPLOYEE_SALARY_MANAGE'), validate({ params: idParam }), controller.upsertSalaryPayment);
 userRouter.put(
   '/:id/roles',
   requirePermission('USER_MANAGE'),
@@ -266,13 +266,13 @@ dataManagementRouter.get(
 export const teamRouter = Router();
 teamRouter.get(
   '/',
-  requireAnyPermission('TEAM_VIEW', 'USER_VIEW', 'PROJECT_CREATE', 'TASK_CREATE'),
+  requireAnyPermission('TEAM_VIEW', 'TEAM_VIEW_ALL', 'TEAM_VIEW_SELF', 'EMPLOYEE_PROFILE_VIEW', 'USER_VIEW', 'PROJECT_CREATE', 'TASK_CREATE'),
   validate({ query: userListQuery }),
   controller.listUsers,
 );
 teamRouter.get(
   '/:id',
-  requirePermission('TEAM_VIEW'),
+  requireAnyPermission('TEAM_VIEW', 'TEAM_VIEW_ALL', 'TEAM_VIEW_SELF', 'EMPLOYEE_PROFILE_VIEW', 'USER_VIEW'),
   validate({ params: idParam }),
   controller.getUser,
 );

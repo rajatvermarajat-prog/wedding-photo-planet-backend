@@ -42,6 +42,17 @@ const PUBLIC_SELECT = {
   },
 } as const;
 
+type PublicUser = {
+  id: string;
+  phone?: string | null;
+  email?: string | null;
+  employeeProfile?: {
+    monthlySalary?: unknown;
+    dailyRate?: unknown;
+    skills?: string[];
+  } | null;
+};
+
 async function nextEmployeeCode(tx: Tx, organizationId: string): Promise<string> {
   const lockKey = `employee-code:${organizationId}`;
 
@@ -93,7 +104,7 @@ function isEmployeeCodeUniqueConflict(error: unknown): boolean {
 }
 
 export async function listUsers(
-  organizationId: string,
+  auth: AuthContext,
   query: {
     page?: number;
     limit?: number;
@@ -106,10 +117,21 @@ export async function listUsers(
     sortOrder?: string;
   },
 ) {
+  const canViewAllTeam =
+    auth.permissions.has('TEAM_VIEW_ALL') ||
+    auth.permissions.has('TEAM_VIEW') ||
+    auth.permissions.has('USER_VIEW');
+  const canViewSelf =
+    canViewAllTeam ||
+    auth.permissions.has('TEAM_VIEW_SELF') ||
+    auth.permissions.has('EMPLOYEE_PROFILE_VIEW');
+  if (!canViewSelf) throw forbidden('You do not have permission to view team members');
+
   const sort = resolveSort(query.sortBy, query.sortOrder, SORTABLE, 'createdAt');
-  return paginate(prisma.user, {
+  const result = await paginate(prisma.user, {
     where: andWhere(
-      { organizationId, deletedAt: null },
+      { organizationId: auth.organizationId, deletedAt: null },
+      canViewAllTeam ? undefined : { id: auth.userId },
       query.status ? { status: query.status } : undefined,
       query.branchId ? { branchId: query.branchId } : undefined,
       query.roleId ? { userRoles: { some: { roleId: query.roleId } } } : undefined,
@@ -123,6 +145,10 @@ export async function listUsers(
     limit: query.limit,
     select: PUBLIC_SELECT,
   });
+  return {
+    ...result,
+    items: (result.items as PublicUser[]).map((user) => redactUserForAuth(user, auth)),
+  };
 }
 
 export function getUser(
@@ -132,6 +158,55 @@ export function getUser(
 ) {
   // PUBLIC_SELECT deliberately omits passwordHash — it never leaves the DB (§37).
   return findScoped(db.user, organizationId, id, 'User', { select: PUBLIC_SELECT });
+}
+
+export async function getUserForAuth(auth: AuthContext, id: string) {
+  const canViewAllTeam =
+    auth.permissions.has('TEAM_VIEW_ALL') ||
+    auth.permissions.has('TEAM_VIEW') ||
+    auth.permissions.has('USER_VIEW');
+  const canViewSelf =
+    canViewAllTeam ||
+    auth.permissions.has('TEAM_VIEW_SELF') ||
+    auth.permissions.has('EMPLOYEE_PROFILE_VIEW');
+  if (!canViewSelf) throw forbidden('You do not have permission to view team members');
+  if (!canViewAllTeam && id !== auth.userId) throw forbidden('You may only view your own employee profile');
+  const user = await getUser(auth.organizationId, id) as PublicUser;
+  return redactUserForAuth(user, auth);
+}
+
+function redactUserForAuth<T extends PublicUser>(
+  user: T,
+  auth: AuthContext,
+): T {
+  const canViewSelf = user.id === auth.userId;
+  const canViewContact =
+    canViewSelf ||
+    auth.permissions.has('EMPLOYEE_CONTACT_VIEW') ||
+    auth.permissions.has('TEAM_VIEW_ALL') ||
+    auth.permissions.has('USER_VIEW');
+  const canViewSalary =
+    auth.permissions.has('EMPLOYEE_SALARY_VIEW') ||
+    auth.permissions.has('EMPLOYEE_SALARY_MANAGE');
+  const canViewSensitive =
+    auth.permissions.has('EMPLOYEE_PROFILE_VIEW_SENSITIVE') ||
+    auth.permissions.has('TEAM_VIEW_ALL') ||
+    auth.permissions.has('USER_VIEW');
+
+  const next: T = {
+    ...user,
+    phone: canViewContact ? user.phone : null,
+    email: canViewContact ? user.email : null,
+    employeeProfile: user.employeeProfile
+      ? {
+          ...user.employeeProfile,
+          monthlySalary: canViewSalary ? user.employeeProfile.monthlySalary : null,
+          dailyRate: canViewSalary ? user.employeeProfile.dailyRate : null,
+          skills: canViewSensitive || canViewSelf ? user.employeeProfile.skills : [],
+        }
+      : user.employeeProfile,
+  };
+  return next;
 }
 
 export interface CreateUserInput {

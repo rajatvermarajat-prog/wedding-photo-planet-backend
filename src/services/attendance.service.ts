@@ -163,7 +163,7 @@ function minutesFromShift(value: string | null): number | null {
 /** Authoritative month payroll derived from the persisted attendance ledger. */
 export async function getMonthlyAttendanceSummary(
   organizationId: string,
-  query: { month?: string; userId?: string },
+  query: { month?: string; userId?: string; includeSalary?: boolean },
 ) {
   const month = query.month ?? new Date().toISOString().slice(0, 7);
   const from = new Date(`${month}-01T00:00:00.000Z`);
@@ -199,7 +199,8 @@ export async function getMonthlyAttendanceSummary(
         present, absent, late, halfDay, onLeave: count(AttendanceStatus.ON_LEAVE),
         payableDays, workingMinutes, expectedMinutes,
         undertimeMinutes: Math.max(0, expectedMinutes - workingMinutes),
-        dailyRate, calculatedSalary: Math.round(payableDays * dailyRate * 100) / 100,
+        dailyRate: query.includeSalary ? dailyRate : null,
+        calculatedSalary: query.includeSalary ? Math.round(payableDays * dailyRate * 100) / 100 : null,
         shift: { start: profile?.shiftStart ?? null, end: profile?.shiftEnd ?? null },
       };
     }),
@@ -212,7 +213,7 @@ export async function getEmployeePerformanceReport(
   userId: string,
   month?: string,
 ) {
-  const summary = await getMonthlyAttendanceSummary(organizationId, { month, userId });
+  const summary = await getMonthlyAttendanceSummary(organizationId, { month, userId, includeSalary: true });
   const employee = summary.employees[0];
   if (!employee) throw notFound('User');
   const [assignedTasks, completedTasks, workSessions, shootAssignments] = await Promise.all([
@@ -221,16 +222,21 @@ export async function getEmployeePerformanceReport(
     prisma.workSession.aggregate({ where: { userId }, _sum: { activeSeconds: true }, _count: { _all: true } }),
     prisma.shootAssignment.count({ where: { userId, shoot: { organizationId } } }),
   ]);
+  const employeeWithSalary = {
+    ...employee,
+    dailyRate: Number(employee.dailyRate ?? 0),
+    calculatedSalary: Number(employee.calculatedSalary ?? 0),
+  };
   return {
     month: summary.month,
-    employee,
+    employee: employeeWithSalary,
     attendance: {
       present: employee.present, absent: employee.absent, late: employee.late, halfDay: employee.halfDay,
       onLeave: employee.onLeave, payableDays: employee.payableDays,
       workingMinutes: employee.workingMinutes, expectedMinutes: employee.expectedMinutes,
       undertimeMinutes: employee.undertimeMinutes,
     },
-    salary: { dailyRate: employee.dailyRate, calculatedSalary: employee.calculatedSalary },
+    salary: { dailyRate: employeeWithSalary.dailyRate, calculatedSalary: employeeWithSalary.calculatedSalary },
     performance: {
       assignedTasks,
       completedTasks,

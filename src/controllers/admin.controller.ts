@@ -11,13 +11,13 @@ import * as dataManagementService from '../services/dataManagement.service';
 
 export const listUsers = asyncHandler(async (req, res) => {
   const auth = requireAuthContext(req);
-  const { items, pagination } = await userService.listUsers(auth.organizationId, req.query);
+  const { items, pagination } = await userService.listUsers(auth, req.query);
   return sendSuccess(res, items, { pagination });
 });
 
 export const getUser = asyncHandler(async (req, res) => {
   const auth = requireAuthContext(req);
-  return sendSuccess(res, await userService.getUser(auth.organizationId, req.params.id));
+  return sendSuccess(res, await userService.getUserForAuth(auth, req.params.id));
 });
 
 export const createUser = asyncHandler(async (req, res) => {
