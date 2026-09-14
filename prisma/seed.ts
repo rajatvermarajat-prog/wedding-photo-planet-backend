@@ -137,7 +137,7 @@ async function main(): Promise<void> {
         name: roleName,
         type: RoleType.SYSTEM,
         description: `System role: ${roleName}`,
-        isDefault: roleName === 'MEMBER',
+        isDefault: roleName === 'Account Manager',
       },
       update: { type: RoleType.SYSTEM },
     });

@@ -40,6 +40,20 @@ interface StorageRow {
   shoots_backed_up: bigint;
 }
 
+const numberFromDecimal = (value: unknown) => Number(value ?? 0);
+
+function readProjectDataBackup(value?: string | null): { totalDataSizeGB?: unknown } {
+  if (!value) return {};
+  try {
+    const parsed = JSON.parse(value);
+    return parsed && typeof parsed === 'object' && parsed.dataBackup && typeof parsed.dataBackup === 'object'
+      ? parsed.dataBackup
+      : {};
+  } catch {
+    return {};
+  }
+}
+
 export async function getOverview(organizationId: string, query: OverviewQuery) {
   const range = dateRangeFilter(query.from, query.to);
   const now = new Date();
@@ -323,6 +337,8 @@ export async function getProjectDataStatus(
         name: true,
         status: true,
         weddingDate: true,
+        totalStorageCapacityGb: true,
+        otherClientDetails: true,
         client: { select: { id: true, displayName: true } },
         shoots: {
           where: { deletedAt: null },
@@ -354,17 +370,29 @@ export async function getProjectDataStatus(
   ]);
 
   const items = projects.map((project) => {
-    const totalGb = project.shoots.reduce((acc, s) => acc.plus(s.dataSizeGb ?? 0), money(0));
+    const shootTotalGb = project.shoots.reduce((acc, s) => acc.plus(s.dataSizeGb ?? 0), money(0));
+    const dataBackup = readProjectDataBackup(project.otherClientDetails);
+    const manualUsedGb = Number(dataBackup.totalDataSizeGB);
+    const totalGb = Number.isFinite(manualUsedGb) && manualUsedGb >= 0 ? money(manualUsedGb) : shootTotalGb;
+    const totalStorageCapacityGb = numberFromDecimal(project.totalStorageCapacityGb);
+    const usedStorageGb = Number(round2(totalGb));
+    const availableStorageGb = Math.max(0, totalStorageCapacityGb - usedStorageGb);
     const received = project.shoots.filter((s) => s.dataReceivedAt !== null).length;
     const backedUp = project.shoots.filter((s) => s.backupDoneAt !== null).length;
     return {
       ...project,
+      totalStorageCapacityGb,
+      usedStorageGb,
+      availableStorageGb,
       summary: {
         shootCount: project.shoots.length,
         dataReceivedCount: received,
         backupCompleteCount: backedUp,
         pendingDataCount: project.shoots.length - received,
         totalDataGb: round2(totalGb).toString(),
+        totalStorageCapacityGb,
+        usedStorageGb,
+        availableStorageGb,
       },
     };
   });

@@ -347,8 +347,87 @@ describe('operations: expenses, tasks, deliveries, data management', () => {
       shootCount: 0,
       dataReceivedCount: 0,
       pendingDataCount: 0,
+      totalStorageCapacityGb: 5000,
+      usedStorageGb: 0,
+      availableStorageGb: 5000,
     });
     expect(response.body.data[0].summary.totalDataGb).toBe('0');
+  });
+
+  it('keeps storage capacity and availability project-specific', async () => {
+    await authed(adminToken)
+      .patch(`${base}/projects/${projectId}`)
+      .send({ totalStorageCapacityGb: 2000 })
+      .expect(200);
+
+    const secondClient = await authed(adminToken)
+      .post(`${base}/clients`)
+      .send({ displayName: 'Second Couple', primaryPhone: '+919812345679' })
+      .expect(201);
+
+    const secondProject = await authed(adminToken)
+      .post(`${base}/projects`)
+      .send({ clientId: secondClient.body.data.id, name: 'Project B', totalStorageCapacityGb: 5000 })
+      .expect(201);
+
+    await prisma.shoot.createMany({
+      data: [
+        {
+          organizationId: org.organizationId,
+          projectId,
+          title: 'Project A RAW',
+          shootDate: new Date('2026-12-14T00:00:00Z'),
+          dataSizeGb: 500,
+        },
+        {
+          organizationId: org.organizationId,
+          projectId: secondProject.body.data.id,
+          title: 'Project B RAW',
+          shootDate: new Date('2026-12-15T00:00:00Z'),
+          dataSizeGb: 200,
+        },
+      ],
+    });
+
+    await authed(adminToken)
+      .patch(`${base}/projects/${projectId}/data-backup`)
+      .send({ totalDataSizeGB: 750 })
+      .expect(200);
+
+    const firstResponse = await authed(adminToken).get(`${base}/data-management/projects`).expect(200);
+    const projectA = firstResponse.body.data.find((item: { id: string }) => item.id === projectId);
+    const projectB = firstResponse.body.data.find((item: { id: string }) => item.id === secondProject.body.data.id);
+
+    expect(projectA).toMatchObject({
+      totalStorageCapacityGb: 2000,
+      usedStorageGb: 750,
+      availableStorageGb: 1250,
+    });
+    expect(projectA.summary).toMatchObject({
+      totalStorageCapacityGb: 2000,
+      usedStorageGb: 750,
+      availableStorageGb: 1250,
+    });
+    expect(projectB).toMatchObject({
+      totalStorageCapacityGb: 5000,
+      usedStorageGb: 200,
+      availableStorageGb: 4800,
+    });
+
+    await authed(adminToken)
+      .patch(`${base}/projects/${projectId}`)
+      .send({ totalStorageCapacityGb: 3000 })
+      .expect(200);
+
+    const secondResponse = await authed(adminToken).get(`${base}/data-management/projects`).expect(200);
+    const updatedA = secondResponse.body.data.find((item: { id: string }) => item.id === projectId);
+    const unchangedB = secondResponse.body.data.find((item: { id: string }) => item.id === secondProject.body.data.id);
+
+    expect(updatedA.totalStorageCapacityGb).toBe(3000);
+    expect(updatedA.usedStorageGb).toBe(750);
+    expect(updatedA.availableStorageGb).toBe(2250);
+    expect(unchangedB.totalStorageCapacityGb).toBe(5000);
+    expect(unchangedB.availableStorageGb).toBe(4800);
   });
 
   // --- Personal to-dos ----------------------------------------------------

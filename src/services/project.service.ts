@@ -567,6 +567,7 @@ export interface CreateProjectInput {
   venueAddress?: string;
   venueCity?: string;
   totalQuotation?: Prisma.Decimal.Value;
+  totalStorageCapacityGb?: Prisma.Decimal.Value;
   customServiceType?: string;
   otherClientDetails?: string;
   notes?: string;
@@ -653,6 +654,7 @@ export async function createProject(
         venueAddress: input.venueAddress,
         venueCity: input.venueCity,
         totalQuotation: input.totalQuotation ?? 0,
+        totalStorageCapacityGb: input.totalStorageCapacityGb ?? 5000,
         customServiceType: input.customServiceType,
         otherClientDetails: input.otherClientDetails,
         notes: input.notes,
@@ -731,6 +733,7 @@ export async function updateProject(
         venueAddress: input.venueAddress,
         venueCity: input.venueCity,
         totalQuotation: input.totalQuotation,
+        totalStorageCapacityGb: input.totalStorageCapacityGb,
         customServiceType: input.customServiceType,
         otherClientDetails: input.otherClientDetails,
         notes: input.notes,
@@ -861,10 +864,15 @@ export async function updateProjectDataBackup(
         parsed = { customDetails: existing.otherClientDetails };
       }
     }
-    parsed.dataBackup = dataBackup;
+    const capacity = Number(dataBackup.totalStorageCapacityGb ?? dataBackup.totalStorageCapacityGB);
+    const { totalStorageCapacityGb, totalStorageCapacityGB, ...backupOnly } = dataBackup;
+    parsed.dataBackup = backupOnly;
     const updated = await tx.project.update({
       where: { id: projectId },
-      data: { otherClientDetails: JSON.stringify(parsed) },
+      data: {
+        otherClientDetails: JSON.stringify(parsed),
+        ...(Number.isFinite(capacity) && capacity >= 0 ? { totalStorageCapacityGb: capacity } : {}),
+      },
     });
     await recordAudit(tx, ctx, {
       action: 'UPDATE',

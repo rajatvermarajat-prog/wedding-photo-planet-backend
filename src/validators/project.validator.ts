@@ -148,6 +148,7 @@ const projectInputSchema = z.object({
   venueAddress: z.string().max(255).optional(),
   venueCity: z.string().max(80).optional(),
   totalQuotation: nonNegativeDecimal.optional(),
+  totalStorageCapacityGb: z.coerce.number().min(0).optional(),
   customServiceType: z.string().trim().min(1).max(160).optional(),
   otherClientDetails: z.string().trim().max(5000).optional(),
   notes: z.string().max(5000).optional(),
