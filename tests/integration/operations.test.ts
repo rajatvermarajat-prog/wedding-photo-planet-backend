@@ -19,13 +19,18 @@ describe('operations: expenses, tasks, deliveries, data management', () => {
 
     const client = await authed(adminToken)
       .post(`${base}/clients`)
-      .send({ displayName: 'Test Couple', primaryPhone: '+919812345678' })
+      .send({ displayName: 'Test Couple', primaryPhone: '9812345678' })
       .expect(201);
     clientId = client.body.data.id;
 
     const project = await authed(adminToken)
       .post(`${base}/projects`)
-      .send({ clientId, name: 'Test Wedding', weddingDate: '2026-12-14' })
+      .send({
+        clientId,
+        name: 'Test Wedding',
+        weddingDate: '2026-12-14',
+        managerId: org.member.id,
+      })
       .expect(201);
     projectId = project.body.data.id;
   });
@@ -362,7 +367,7 @@ describe('operations: expenses, tasks, deliveries, data management', () => {
 
     const secondClient = await authed(adminToken)
       .post(`${base}/clients`)
-      .send({ displayName: 'Second Couple', primaryPhone: '+919812345679' })
+      .send({ displayName: 'Second Couple', primaryPhone: '9812345679' })
       .expect(201);
 
     const secondProject = await authed(adminToken)

@@ -13,13 +13,13 @@ import { createPerformanceReportPdf } from '../utils/performance-report-pdf';
 
 export const listTasks = asyncHandler(async (req, res) => {
   const auth = requireAuthContext(req);
-  const { items, pagination } = await taskService.listTasks(auth.organizationId, req.query);
+  const { items, pagination } = await taskService.listTasks(auth, req.query);
   return sendSuccess(res, items, { pagination });
 });
 
 export const getTask = asyncHandler(async (req, res) => {
   const auth = requireAuthContext(req);
-  return sendSuccess(res, await taskService.getTask(auth.organizationId, req.params.id));
+  return sendSuccess(res, await taskService.getTask(auth, req.params.id));
 });
 
 export const createTask = asyncHandler(async (req, res) => {

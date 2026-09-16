@@ -23,7 +23,7 @@ describe('authentication', () => {
     expect(response.body.success).toBe(true);
     expect(response.body.data.tokens.accessToken).toBeTruthy();
     expect(response.body.data.tokens.refreshToken).toBeTruthy();
-    expect(response.body.data.user.roles).toContain('ADMIN');
+    expect(response.body.data.user.roles).toContain('Admin');
     expect(response.body.data.user.permissions).toContain('PAYMENT_CREATE');
   });
 

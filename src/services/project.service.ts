@@ -79,7 +79,7 @@ function assignedProjectWhere(auth: AuthContext): Prisma.ProjectWhereInput {
   };
 }
 
-function scopedProjectWhere(auth: AuthContext, extra?: Prisma.ProjectWhereInput): Prisma.ProjectWhereInput {
+export function scopedProjectWhere(auth: AuthContext, extra?: Prisma.ProjectWhereInput): Prisma.ProjectWhereInput {
   return andWhere(
     { organizationId: auth.organizationId, deletedAt: null },
     assignedProjectWhere(auth),

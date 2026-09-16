@@ -16,7 +16,7 @@ describe('shoot crew assignment', () => {
 
     const client = await authed(token)
       .post(`${base}/clients`)
-      .send({ displayName: 'Test Couple', primaryPhone: '+919812345678' })
+      .send({ displayName: 'Test Couple', primaryPhone: '9812345678' })
       .expect(201);
     clientId = client.body.data.id;
 
@@ -33,7 +33,7 @@ describe('shoot crew assignment', () => {
 
     const freelancer = await authed(token)
       .post(`${base}/freelancers`)
-      .send({ fullName: 'Rohit Candid', phone: '+919900112233', rate: '18000.00' })
+      .send({ fullName: 'Rohit Candid', phone: '9900112233', rate: '18000.00' })
       .expect(201);
     freelancerId = freelancer.body.data.id;
   });

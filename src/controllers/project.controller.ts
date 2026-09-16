@@ -100,7 +100,7 @@ export const updateDeliveries = asyncHandler(async (req, res) => {
 export const listClientAssets = asyncHandler(async (req, res) => {
   const auth = requireAuthContext(req);
   await projectService.assertCanAccessProject(auth, req.params.id);
-  return sendSuccess(res, await clientAssetService.getProjectClientAssets(auth.organizationId, req.params.id));
+  return sendSuccess(res, await clientAssetService.getProjectClientAssets(auth, req.params.id));
 });
 export const createClientAssetUploadIntent = asyncHandler(async (req, res) => {
   const auth = requireAuthContext(req);
@@ -126,7 +126,7 @@ export const deleteClientAsset = asyncHandler(async (req, res) => {
 export const clientAssetDownloadUrl = asyncHandler(async (req, res) => {
   const auth = requireAuthContext(req);
   await projectService.assertCanAccessProject(auth, req.params.id);
-  return sendSuccess(res, await clientAssetService.getProjectClientAssetDownloadUrl(auth.organizationId, req.params.id, req.params.assetId));
+  return sendSuccess(res, await clientAssetService.getProjectClientAssetDownloadUrl(auth, req.params.id, req.params.assetId));
 });
 
 // --- Events ---------------------------------------------------------------
