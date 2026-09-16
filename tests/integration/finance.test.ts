@@ -30,7 +30,7 @@ describe('finance: invoices, payments, allocation', () => {
 
     const client = await authed(token)
       .post(`${base}/clients`)
-      .send({ displayName: 'Test Couple', primaryPhone: '+919812345678' })
+      .send({ displayName: 'Test Couple', primaryPhone: '9812345678' })
       .expect(201);
     clientId = client.body.data.id;
 

@@ -73,7 +73,7 @@ describe('role-based access control', () => {
     const adminToken = await login(org.admin);
     const created = await authed(adminToken)
       .post(`${base}/clients`)
-      .send({ displayName: 'Studio A Client', primaryPhone: '+919000000001' })
+      .send({ displayName: 'Studio A Client', primaryPhone: '9000000001' })
       .expect(201);
 
     const otherOrg = await seedTestOrganization('other-studio');

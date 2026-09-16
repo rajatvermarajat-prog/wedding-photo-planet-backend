@@ -1,11 +1,12 @@
-import { TaskCategory, TaskPriority, TaskStatus } from '@prisma/client';
+import { Prisma, TaskCategory, TaskPriority, TaskStatus } from '@prisma/client';
 import { prisma } from '../config/prisma';
-import { andWhere, findScoped, paginate, searchFilter } from '../repositories/base.repository';
+import { andWhere, paginate, searchFilter } from '../repositories/base.repository';
 import { resolveSort } from '../utils/pagination';
 import { badRequest, conflict, notFound } from '../utils/errors';
 import { dateRangeFilter } from '../utils/date';
 import { AuthContext } from '../types';
 import { AuditRequestContext, recordAudit } from './audit.service';
+import { scopedProjectWhere } from './project.service';
 
 const SORTABLE = ['dueDate', 'createdAt', 'priority', 'status', 'title'] as const;
 
@@ -29,12 +30,38 @@ export interface TaskListQuery {
   sortOrder?: string;
 }
 
-export function listTasks(organizationId: string, query: TaskListQuery) {
+function taskAccessWhere(auth: AuthContext): Prisma.TaskWhereInput {
+  return {
+    OR: [
+      { createdById: auth.userId },
+      { assigneeId: auth.userId },
+      { assignments: { some: { OR: [{ fromUserId: auth.userId }, { toUserId: auth.userId }, { assignedById: auth.userId }] } } },
+      { project: scopedProjectWhere(auth) },
+    ],
+  };
+}
+
+function scopedTaskWhere(auth: AuthContext, extra?: Prisma.TaskWhereInput): Prisma.TaskWhereInput {
+  return andWhere({ organizationId: auth.organizationId, deletedAt: null }, taskAccessWhere(auth), extra);
+}
+
+async function getAccessibleTask<T>(
+  db: Pick<typeof prisma.task, 'findFirst'>,
+  auth: AuthContext,
+  id: string,
+  include?: Prisma.TaskInclude,
+): Promise<T> {
+  const task = await db.findFirst({ where: scopedTaskWhere(auth, { id }), ...(include ? { include } : {}) });
+  if (!task) throw notFound('Task');
+  return task as T;
+}
+
+export function listTasks(auth: AuthContext, query: TaskListQuery) {
   const sort = resolveSort(query.sortBy, query.sortOrder, SORTABLE, 'dueDate');
   const dueDate = dateRangeFilter(query.from, query.to);
   return paginate(prisma.task, {
     where: andWhere(
-      { organizationId, deletedAt: null },
+      scopedTaskWhere(auth),
       query.status ? { status: query.status } : undefined,
       query.priority ? { priority: query.priority } : undefined,
       query.category ? { category: query.category } : undefined,
@@ -58,29 +85,27 @@ export function listTasks(organizationId: string, query: TaskListQuery) {
   });
 }
 
-export function getTask(organizationId: string, id: string) {
-  return findScoped(prisma.task, organizationId, id, 'Task', {
-    include: {
-      assignee: { select: { id: true, fullName: true, email: true } },
-      createdBy: { select: { id: true, fullName: true } },
-      project: { select: { id: true, projectNumber: true, name: true } },
-      event: { select: { id: true, name: true } },
-      shoot: { select: { id: true, title: true } },
-      delivery: { select: { id: true, title: true } },
-      assignments: {
-        orderBy: { createdAt: 'desc' },
-        include: {
-          fromUser: { select: { id: true, fullName: true } },
-          toUser: { select: { id: true, fullName: true } },
-          assignedBy: { select: { id: true, fullName: true } },
-        },
+export function getTask(auth: AuthContext, id: string) {
+  return getAccessibleTask(prisma.task, auth, id, {
+    assignee: { select: { id: true, fullName: true, email: true } },
+    createdBy: { select: { id: true, fullName: true } },
+    project: { select: { id: true, projectNumber: true, name: true } },
+    event: { select: { id: true, name: true } },
+    shoot: { select: { id: true, title: true } },
+    delivery: { select: { id: true, title: true } },
+    assignments: {
+      orderBy: { createdAt: 'desc' },
+      include: {
+        fromUser: { select: { id: true, fullName: true } },
+        toUser: { select: { id: true, fullName: true } },
+        assignedBy: { select: { id: true, fullName: true } },
       },
-      statusHistory: {
-        orderBy: { createdAt: 'desc' },
-        include: { changedBy: { select: { id: true, fullName: true } } },
-      },
-      workSessions: { orderBy: { startedAt: 'desc' }, take: 20 },
     },
+    statusHistory: {
+      orderBy: { createdAt: 'desc' },
+      include: { changedBy: { select: { id: true, fullName: true } } },
+    },
+    workSessions: { orderBy: { startedAt: 'desc' }, take: 20 },
   });
 }
 
@@ -105,7 +130,7 @@ export async function createTask(auth: AuthContext, input: CreateTaskInput, ctx:
   return prisma.$transaction(async (tx) => {
     if (input.projectId) {
       const project = await tx.project.findFirst({
-        where: { id: input.projectId, organizationId: auth.organizationId, deletedAt: null },
+        where: scopedProjectWhere(auth, { id: input.projectId }),
         select: { id: true },
       });
       if (!project) throw notFound('Project');
@@ -179,12 +204,7 @@ export async function updateTask(
   ctx: AuditRequestContext,
 ) {
   return prisma.$transaction(async (tx) => {
-    const existing = await findScoped<Record<string, unknown>>(
-      tx.task,
-      auth.organizationId,
-      id,
-      'Task',
-    );
+    const existing = await getAccessibleTask<Record<string, unknown>>(tx.task, auth, id);
     const updated = await tx.task.update({ where: { id }, data: input });
     await recordAudit(tx, ctx, {
       action: 'UPDATE',
@@ -206,12 +226,7 @@ export async function changeTaskStatus(
   ctx: AuditRequestContext,
 ) {
   return prisma.$transaction(async (tx) => {
-    const task = await findScoped<{ id: string; status: TaskStatus; title: string; createdById: string | null }>(
-      tx.task,
-      auth.organizationId,
-      id,
-      'Task',
-    );
+    const task = await getAccessibleTask<{ id: string; status: TaskStatus; title: string; createdById: string | null }>(tx.task, auth, id);
 
     if (task.status === status) throw conflict(`Task is already ${status}`);
     // Completion is reversible: Project Deliveries is derived from completed
@@ -272,12 +287,7 @@ export async function reassignTask(
   ctx: AuditRequestContext,
 ) {
   return prisma.$transaction(async (tx) => {
-    const task = await findScoped<{ id: string; assigneeId: string | null; title: string; status: TaskStatus }>(
-      tx.task,
-      auth.organizationId,
-      id,
-      'Task',
-    );
+    const task = await getAccessibleTask<{ id: string; assigneeId: string | null; title: string; status: TaskStatus }>(tx.task, auth, id);
 
     if (TERMINAL.includes(task.status)) {
       throw conflict(`A ${task.status.toLowerCase()} task cannot be reassigned`);
@@ -335,12 +345,7 @@ export async function reassignTask(
 
 export async function deleteTask(auth: AuthContext, id: string, ctx: AuditRequestContext) {
   return prisma.$transaction(async (tx) => {
-    const task = await findScoped<{ id: string; title: string }>(
-      tx.task,
-      auth.organizationId,
-      id,
-      'Task',
-    );
+    const task = await getAccessibleTask<{ id: string; title: string }>(tx.task, auth, id);
     await tx.task.delete({ where: { id } });
     await recordAudit(tx, ctx, {
       action: 'DELETE',

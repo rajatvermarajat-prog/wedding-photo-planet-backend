@@ -8,6 +8,7 @@ import { startOfMonth } from '../utils/date';
 import { money, round2, ZERO } from '../utils/money';
 import { AuthContext } from '../types';
 import { AuditRequestContext, recordAudit } from './audit.service';
+import { scopedProjectWhere } from './project.service';
 
 const SORTABLE = ['expenseDate', 'createdAt', 'amount'] as const;
 export function withPaymentStatus<T extends { amount: Prisma.Decimal; paidAmount: Prisma.Decimal }>(expense: T) { const amount = Number(expense.amount); const paid = Number(expense.paidAmount); return { ...expense, paymentStatus: paid >= amount ? 'Paid' : paid > 0 ? 'Partial' : 'Unpaid' }; }
@@ -27,12 +28,23 @@ export interface ExpenseListQuery {
   sortOrder?: string;
 }
 
-export function listExpenses(organizationId: string, query: ExpenseListQuery) {
+function expenseAccessWhere(auth: AuthContext): Prisma.ExpenseWhereInput {
+  if (auth.permissions.has('PROJECT_VIEW_ALL') || auth.permissions.has('EXPENSE_APPROVE')) return {};
+  return {
+    OR: [
+      { createdById: auth.userId },
+      { project: scopedProjectWhere(auth) },
+    ],
+  };
+}
+
+export function listExpenses(auth: AuthContext, query: ExpenseListQuery) {
   const sort = resolveSort(query.sortBy, query.sortOrder, SORTABLE, 'expenseDate');
   const expenseDate = dateRangeFilter(query.from, query.to);
   return paginate(prisma.expense, {
     where: andWhere(
-      { organizationId, deletedAt: null },
+      { organizationId: auth.organizationId, deletedAt: null },
+      expenseAccessWhere(auth),
       query.projectId ? { projectId: query.projectId } : undefined,
       query.categoryId ? { categoryId: query.categoryId } : undefined,
       query.approvalStatus ? { approvalStatus: query.approvalStatus } : undefined,
@@ -59,8 +71,9 @@ export function listExpenses(organizationId: string, query: ExpenseListQuery) {
   });
 }
 
-export function getExpense(organizationId: string, id: string) {
-  return findScoped(prisma.expense, organizationId, id, 'Expense', {
+export async function getExpense(auth: AuthContext, id: string) {
+  const expense = await prisma.expense.findFirst({
+    where: andWhere({ id, organizationId: auth.organizationId, deletedAt: null }, expenseAccessWhere(auth)),
     include: {
       category: true,
       project: { select: { id: true, projectNumber: true, name: true } },
@@ -72,6 +85,8 @@ export function getExpense(organizationId: string, id: string) {
       payments: { orderBy: { paidAt: 'desc' } },
     },
   });
+  if (!expense) throw notFound('Expense');
+  return expense;
 }
 
 export interface CreateExpenseInput {
@@ -109,7 +124,7 @@ export async function createExpense(
 
     if (input.projectId) {
       const project = await tx.project.findFirst({
-        where: { id: input.projectId, organizationId: auth.organizationId, deletedAt: null },
+        where: scopedProjectWhere(auth, { id: input.projectId }),
         select: { id: true },
       });
       if (!project) throw notFound('Project');

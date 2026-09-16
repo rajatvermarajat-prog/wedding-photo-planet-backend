@@ -130,6 +130,7 @@ export const fileListQuery = listQuery.extend({
 
 export const uploadIntentSchema = z.object({
   entityType: z.string().trim().min(1).max(48),
+  projectId: uuid.optional(),
   originalName: z.string().trim().min(1).max(255),
   mimeType: z.string().trim().min(1).max(160),
 });

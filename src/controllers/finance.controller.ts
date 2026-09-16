@@ -79,13 +79,13 @@ export const listPayments = asyncHandler(async (req, res) => {
   if (typeof req.query.projectId === 'string') {
     await projectService.assertCanAccessProject(auth, req.query.projectId);
   }
-  const { items, pagination } = await paymentService.listPayments(auth.organizationId, req.query);
+  const { items, pagination } = await paymentService.listPayments(auth, req.query);
   return sendSuccess(res, items.map((item: any) => expenseService.withPaymentStatus(item)), { pagination });
 });
 
 export const getPayment = asyncHandler(async (req, res) => {
   const auth = requireAuthContext(req);
-  return sendSuccess(res, await paymentService.getPayment(auth.organizationId, req.params.id));
+  return sendSuccess(res, await paymentService.getPayment(auth, req.params.id));
 });
 
 export const createPayment = asyncHandler(async (req, res) => {
@@ -119,13 +119,13 @@ export const refundPayment = asyncHandler(async (req, res) => {
 
 export const listExpenses = asyncHandler(async (req, res) => {
   const auth = requireAuthContext(req);
-  const { items, pagination } = await expenseService.listExpenses(auth.organizationId, req.query);
+  const { items, pagination } = await expenseService.listExpenses(auth, req.query);
   return sendSuccess(res, items, { pagination });
 });
 
 export const getExpense = asyncHandler(async (req, res) => {
   const auth = requireAuthContext(req);
-  return sendSuccess(res, expenseService.withPaymentStatus(await expenseService.getExpense(auth.organizationId, req.params.id) as any));
+  return sendSuccess(res, expenseService.withPaymentStatus(await expenseService.getExpense(auth, req.params.id) as any));
 });
 
 export const createExpense = asyncHandler(async (req, res) => {

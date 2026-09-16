@@ -8,13 +8,13 @@ import { prisma } from '../config/prisma';
 
 export const listClients = asyncHandler(async (req, res) => {
   const auth = requireAuthContext(req);
-  const { items, pagination } = await clientService.listClients(auth.organizationId, req.query);
+  const { items, pagination } = await clientService.listClients(auth, req.query);
   return sendSuccess(res, items, { pagination });
 });
 
 export const getClient = asyncHandler(async (req, res) => {
   const auth = requireAuthContext(req);
-  return sendSuccess(res, await clientService.getClient(auth.organizationId, req.params.id));
+  return sendSuccess(res, await clientService.getClient(auth, req.params.id));
 });
 
 export const createClient = asyncHandler(async (req, res) => {

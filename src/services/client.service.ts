@@ -2,9 +2,10 @@ import { prisma } from '../config/prisma';
 import { andWhere, findScoped, paginate, searchFilter } from '../repositories/base.repository';
 import { nextDocumentNumber } from '../utils/documentNumber';
 import { resolveSort } from '../utils/pagination';
-import { conflict } from '../utils/errors';
+import { conflict, notFound } from '../utils/errors';
 import { AuthContext } from '../types';
 import { auditContextFromAuth, recordAudit, AuditRequestContext } from './audit.service';
+import { scopedProjectWhere } from './project.service';
 
 const SORTABLE = ['createdAt', 'displayName', 'clientCode'] as const;
 
@@ -17,11 +18,17 @@ export interface ClientListQuery {
   sortOrder?: string;
 }
 
-export function listClients(organizationId: string, query: ClientListQuery) {
+function clientAccessWhere(auth: AuthContext) {
+  if (auth.permissions.has('PROJECT_VIEW_ALL') || auth.permissions.has('USER_VIEW')) return {};
+  return { projects: { some: scopedProjectWhere(auth) } };
+}
+
+export function listClients(auth: AuthContext, query: ClientListQuery) {
   const sort = resolveSort(query.sortBy, query.sortOrder, SORTABLE, 'createdAt');
   return paginate(prisma.client, {
     where: andWhere(
-      { organizationId, deletedAt: null },
+      { organizationId: auth.organizationId, deletedAt: null },
+      clientAccessWhere(auth),
       query.isActive === undefined ? undefined : { isActive: query.isActive },
       searchFilter(query.search, ['displayName', 'primaryPhone', 'primaryEmail', 'clientCode']),
     ),
@@ -32,8 +39,9 @@ export function listClients(organizationId: string, query: ClientListQuery) {
   });
 }
 
-export function getClient(organizationId: string, id: string) {
-  return findScoped(prisma.client, organizationId, id, 'Client', {
+export async function getClient(auth: AuthContext, id: string) {
+  const client = await prisma.client.findFirst({
+    where: andWhere({ id, organizationId: auth.organizationId, deletedAt: null }, clientAccessWhere(auth)),
     include: {
       contacts: { orderBy: { isPrimary: 'desc' } },
       addresses: { orderBy: { isPrimary: 'desc' } },
@@ -45,6 +53,8 @@ export function getClient(organizationId: string, id: string) {
       },
     },
   });
+  if (!client) throw notFound('Client');
+  return client;
 }
 
 export interface CreateClientInput {

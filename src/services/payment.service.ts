@@ -10,6 +10,7 @@ import { serializable } from '../utils/transaction';
 import { AuthContext } from '../types';
 import { AuditRequestContext, recordAudit } from './audit.service';
 import { outstandingFor, recalculateInvoice } from './invoice.service';
+import { scopedProjectWhere } from './project.service';
 
 const SORTABLE = ['paymentDate', 'createdAt', 'amount', 'paymentNumber'] as const;
 
@@ -29,8 +30,18 @@ export interface CreatePaymentInput {
   allocations?: AllocationInput[];
 }
 
+function paymentAccessWhere(auth: AuthContext): Prisma.PaymentWhereInput {
+  if (auth.permissions.has('PROJECT_VIEW_ALL')) return {};
+  return {
+    OR: [
+      { receivedById: auth.userId },
+      { project: scopedProjectWhere(auth) },
+    ],
+  };
+}
+
 export function listPayments(
-  organizationId: string,
+  auth: AuthContext,
   query: {
     page?: number;
     limit?: number;
@@ -50,7 +61,8 @@ export function listPayments(
   const paymentDate = dateRangeFilter(query.from, query.to);
   return paginate(prisma.payment, {
     where: andWhere(
-      { organizationId },
+      { organizationId: auth.organizationId },
+      paymentAccessWhere(auth),
       query.projectId ? { projectId: query.projectId } : undefined,
       query.clientId ? { clientId: query.clientId } : undefined,
       query.invoiceId ? { allocations: { some: { invoiceId: query.invoiceId } } } : undefined,
@@ -73,8 +85,9 @@ export function listPayments(
   });
 }
 
-export function getPayment(organizationId: string, id: string) {
-  return findScoped(prisma.payment, organizationId, id, 'Payment', {
+export async function getPayment(auth: AuthContext, id: string) {
+  const payment = await prisma.payment.findFirst({
+    where: andWhere({ id, organizationId: auth.organizationId }, paymentAccessWhere(auth)),
     include: {
       client: true,
       project: { select: { id: true, projectNumber: true, name: true } },
@@ -82,6 +95,8 @@ export function getPayment(organizationId: string, id: string) {
       allocations: { include: { invoice: true } },
     },
   });
+  if (!payment) throw notFound('Payment');
+  return payment;
 }
 
 /**
@@ -184,7 +199,7 @@ export async function createPayment(
 
     if (input.projectId) {
       const project = await tx.project.findFirst({
-        where: { id: input.projectId, organizationId: auth.organizationId, deletedAt: null },
+        where: scopedProjectWhere(auth, { id: input.projectId }),
         select: { id: true },
       });
       if (!project) throw notFound('Project');

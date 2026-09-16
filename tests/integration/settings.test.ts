@@ -320,17 +320,17 @@ describe('settings workspace', () => {
       expect.arrayContaining(['PAYMENT_VIEW', 'INVOICE_VIEW', 'QUOTATION_VIEW', 'EXPENSE_VIEW']),
     );
 
-    // 3. The grant lives in the existing RBAC tables, so the Roles desk sees it.
-    const { body: roles } = await authed(adminToken).get(`${base}/roles`).expect(200);
-    const personal = roles.data.find(
-      (role: { personalForUserId: string | null }) => role.personalForUserId === org.member.id,
-    );
+    // 3. The grant lives in the existing RBAC tables as a personal role.
+    const personal = await prisma.role.findFirst({
+      where: { organizationId: org.organizationId, personalForUserId: org.member.id, deletedAt: null },
+      include: { rolePermissions: { include: { permission: true } } },
+    });
     expect(personal).toBeDefined();
-    expect(personal.rolePermissions.map((rp: { permission: { key: string } }) => rp.permission.key))
+    expect(personal!.rolePermissions.map((rp) => rp.permission.key))
       .toEqual(expect.arrayContaining(['PAYMENT_VIEW', 'INVOICE_VIEW']));
 
     // 4. No parallel permission system was created.
-    const grantedRows = await prisma.rolePermission.count({ where: { roleId: personal.id } });
+    const grantedRows = await prisma.rolePermission.count({ where: { roleId: personal!.id } });
     expect(grantedRows).toBeGreaterThan(0);
 
     // 5. The workspace now reports finance as granted rather than available.

@@ -165,7 +165,7 @@ export const removeBranch = asyncHandler(async (req, res) => {
 
 export const listFiles = asyncHandler(async (req, res) => {
   const auth = requireAuthContext(req);
-  const { items, pagination } = await fileService.listFiles(auth.organizationId, req.query);
+  const { items, pagination } = await fileService.listFiles(auth, req.query);
   return sendSuccess(res, items, { pagination });
 });
 
@@ -181,7 +181,7 @@ export const registerFile = asyncHandler(async (req, res) => {
 
 export const getDownloadUrl = asyncHandler(async (req, res) => {
   const auth = requireAuthContext(req);
-  return sendSuccess(res, await fileService.getDownloadUrl(auth.organizationId, req.params.id));
+  return sendSuccess(res, await fileService.getDownloadUrl(auth, req.params.id));
 });
 
 export const removeFile = asyncHandler(async (req, res) => {
