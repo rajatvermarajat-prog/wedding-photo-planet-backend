@@ -25,10 +25,20 @@ export interface AuthContext {
   };
 }
 
+export interface FreelancerAuthContext {
+  freelancerId: string;
+  organizationId: string;
+  sessionId: string;
+  email: string | null;
+  phone: string;
+  fullName: string;
+}
+
 declare global {
   namespace Express {
     interface Request {
       auth?: AuthContext;
+      freelancerAuth?: FreelancerAuthContext;
       requestId: string;
     }
     interface Locals {
@@ -40,6 +50,10 @@ declare global {
 /** A request that has passed `requireAuth`, so `auth` is guaranteed present. */
 export interface AuthedRequest extends Request {
   auth: AuthContext;
+}
+
+export interface FreelancerAuthedRequest extends Request {
+  freelancerAuth: FreelancerAuthContext;
 }
 
 export interface ListQuery {

@@ -1,6 +1,6 @@
 import { PaymentMethod, PaymentStatus, Prisma } from '@prisma/client';
 import { prisma, Tx } from '../config/prisma';
-import { andWhere, findScoped, paginate, searchFilter } from '../repositories/base.repository';
+import { andWhere, paginate, searchFilter } from '../repositories/base.repository';
 import { resolveSort } from '../utils/pagination';
 import { nextDocumentNumber } from '../utils/documentNumber';
 import { badRequest, conflict, notFound, unprocessable } from '../utils/errors';

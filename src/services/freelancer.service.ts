@@ -1,4 +1,15 @@
-import { CrewRole, FreelancerStatus, PaymentMethod, Prisma, RateType } from '@prisma/client';
+import {
+  BillingInterval,
+  CrewRole,
+  FreelancerApplicationStatus,
+  FreelancerAvailabilityStatus,
+  FreelancerConnectionStatus,
+  FreelancerStatus,
+  FreelancerSubscriptionStatus,
+  PaymentMethod,
+  Prisma,
+  RateType,
+} from '@prisma/client';
 import { prisma } from '../config/prisma';
 import { andWhere, findScoped, paginate, searchFilter } from '../repositories/base.repository';
 import { resolveSort } from '../utils/pagination';
@@ -10,6 +21,25 @@ import { AuthContext } from '../types';
 import { AuditRequestContext, recordAudit } from './audit.service';
 
 const SORTABLE = ['createdAt', 'fullName', 'rate', 'rating'] as const;
+const PLAN_SORTABLE = ['createdAt', 'name', 'price'] as const;
+const APPLICATION_SORTABLE = ['submittedAt', 'createdAt', 'fullName'] as const;
+const CONNECTION_SORTABLE = ['createdAt', 'updatedAt'] as const;
+const ACTIVE_APPLICATION_STATUSES: FreelancerApplicationStatus[] = [
+  'DRAFT',
+  'SUBMITTED',
+  'UNDER_REVIEW',
+];
+const SEARCHABLE_SUBSCRIPTION_STATUSES: FreelancerSubscriptionStatus[] = ['ACTIVE'];
+const SUBSCRIPTION_TRANSITIONS: Record<
+  FreelancerSubscriptionStatus,
+  FreelancerSubscriptionStatus[]
+> = {
+  PENDING: ['ACTIVE', 'CANCELED', 'EXPIRED'],
+  ACTIVE: ['PAST_DUE', 'CANCELED', 'EXPIRED'],
+  PAST_DUE: ['ACTIVE', 'CANCELED', 'EXPIRED'],
+  CANCELED: [],
+  EXPIRED: [],
+};
 
 export function listFreelancers(
   organizationId: string,
@@ -309,5 +339,583 @@ export async function getFreelancerLedger(organizationId: string, freelancerId: 
       paid: paid.toString(),
       outstanding: round2(committed.minus(paid)).toString(),
     };
+  });
+}
+
+export function listFreelancerPlans(
+  organizationId: string,
+  query: {
+    page?: number;
+    limit?: number;
+    search?: string;
+    active?: boolean;
+    sortBy?: string;
+    sortOrder?: string;
+  },
+) {
+  const sort = resolveSort(query.sortBy, query.sortOrder, PLAN_SORTABLE, 'createdAt');
+  return paginate(prisma.freelancerPlan, {
+    where: andWhere(
+      { organizationId },
+      typeof query.active === 'boolean' ? { isActive: query.active } : undefined,
+      searchFilter(query.search, ['name', 'slug', 'description']),
+    ),
+    orderBy: { [sort.field]: sort.direction },
+    page: query.page,
+    limit: query.limit,
+  });
+}
+
+export async function createFreelancerPlan(
+  auth: AuthContext,
+  input: {
+    name: string;
+    slug: string;
+    description?: string;
+    price: Prisma.Decimal.Value;
+    currency?: string;
+    billingInterval?: BillingInterval;
+    features?: Prisma.InputJsonValue;
+    limits?: Prisma.InputJsonValue;
+    isActive?: boolean;
+  },
+  ctx: AuditRequestContext,
+) {
+  const plan = await prisma.freelancerPlan.create({
+    data: {
+      organizationId: auth.organizationId,
+      ...input,
+      currency: input.currency ?? 'INR',
+      price: money(input.price),
+    },
+  });
+  await recordAudit(prisma, ctx, {
+    action: 'CREATE',
+    entityType: 'FreelancerPlan',
+    entityId: plan.id,
+    summary: `Freelancer plan ${plan.slug} created`,
+    newData: plan,
+  });
+  return plan;
+}
+
+export async function updateFreelancerPlan(
+  auth: AuthContext,
+  id: string,
+  input: Partial<{
+    name: string;
+    slug: string;
+    description: string;
+    price: Prisma.Decimal.Value;
+    currency: string;
+    billingInterval: BillingInterval;
+    features: Prisma.InputJsonValue;
+    limits: Prisma.InputJsonValue;
+    isActive: boolean;
+  }>,
+  ctx: AuditRequestContext,
+) {
+  return prisma.$transaction(async (tx) => {
+    const existing = await tx.freelancerPlan.findFirst({ where: { id, organizationId: auth.organizationId } });
+    if (!existing) throw notFound('Freelancer plan');
+    const updated = await tx.freelancerPlan.update({
+      where: { id },
+      data: { ...input, price: input.price === undefined ? undefined : money(input.price) },
+    });
+    await recordAudit(tx, ctx, {
+      action: 'UPDATE',
+      entityType: 'FreelancerPlan',
+      entityId: id,
+      summary: `Freelancer plan ${updated.slug} updated`,
+      oldData: existing,
+      newData: updated,
+    });
+    return updated;
+  });
+}
+
+export function listFreelancerSubscriptions(organizationId: string, freelancerId: string) {
+  return prisma.freelancerSubscription.findMany({
+    where: { freelancerId, freelancer: { organizationId, deletedAt: null } },
+    include: { plan: true },
+    orderBy: { createdAt: 'desc' },
+  });
+}
+
+export async function isFreelancerSearchable(
+  organizationId: string,
+  freelancerId: string,
+  now = new Date(),
+): Promise<boolean> {
+  const freelancer = await prisma.freelancer.findFirst({
+    where: {
+      id: freelancerId,
+      organizationId,
+      deletedAt: null,
+      status: 'ACTIVE',
+      fullName: { not: '' },
+      phone: { not: '' },
+      applications: { some: { status: 'APPROVED' } },
+      subscriptions: {
+        some: {
+          status: { in: SEARCHABLE_SUBSCRIPTION_STATUSES },
+          OR: [{ currentPeriodEnd: null }, { currentPeriodEnd: { gte: now } }],
+          canceledAt: null,
+        },
+      },
+    },
+    select: { id: true },
+  });
+  return Boolean(freelancer);
+}
+
+export async function createFreelancerSubscription(
+  auth: AuthContext,
+  freelancerId: string,
+  input: {
+    planId: string;
+    status?: FreelancerSubscriptionStatus;
+    startedAt?: Date;
+    currentPeriodStart?: Date;
+    currentPeriodEnd?: Date;
+    canceledAt?: Date;
+    externalCustomerId?: string;
+    externalSubscriptionId?: string;
+    metadata?: Prisma.InputJsonValue;
+  },
+  ctx: AuditRequestContext,
+) {
+  return prisma.$transaction(async (tx) => {
+    await findScoped(tx.freelancer, auth.organizationId, freelancerId, 'Freelancer');
+    const plan = await tx.freelancerPlan.findFirst({
+      where: { id: input.planId, organizationId: auth.organizationId },
+      select: { id: true, slug: true },
+    });
+    if (!plan) throw notFound('Freelancer plan');
+
+    const subscription = await tx.freelancerSubscription.create({
+      data: { freelancerId, ...input },
+      include: { plan: true },
+    });
+    await recordAudit(tx, ctx, {
+      action: 'CREATE',
+      entityType: 'FreelancerSubscription',
+      entityId: subscription.id,
+      summary: `Freelancer subscription to ${plan.slug} created`,
+      newData: subscription,
+    });
+    return subscription;
+  });
+}
+
+export async function updateFreelancerSubscription(
+  auth: AuthContext,
+  freelancerId: string,
+  subscriptionId: string,
+  input: Partial<{
+    status: FreelancerSubscriptionStatus;
+    startedAt: Date;
+    currentPeriodStart: Date;
+    currentPeriodEnd: Date;
+    canceledAt: Date;
+    externalCustomerId: string;
+    externalSubscriptionId: string;
+    metadata: Prisma.InputJsonValue;
+  }>,
+  ctx: AuditRequestContext,
+) {
+  return prisma.$transaction(async (tx) => {
+    const existing = await tx.freelancerSubscription.findFirst({
+      where: { id: subscriptionId, freelancerId, freelancer: { organizationId: auth.organizationId } },
+    });
+    if (!existing) throw notFound('Freelancer subscription');
+    if (
+      input.status &&
+      input.status !== existing.status &&
+      !SUBSCRIPTION_TRANSITIONS[existing.status].includes(input.status)
+    ) {
+      throw conflict(`Cannot change subscription from ${existing.status} to ${input.status}`);
+    }
+    const updated = await tx.freelancerSubscription.update({
+      where: { id: subscriptionId },
+      data: input,
+      include: { plan: true },
+    });
+    await recordAudit(tx, ctx, {
+      action: 'UPDATE',
+      entityType: 'FreelancerSubscription',
+      entityId: subscriptionId,
+      summary: 'Freelancer subscription updated',
+      oldData: existing,
+      newData: updated,
+    });
+    return updated;
+  });
+}
+
+export function listAvailability(
+  organizationId: string,
+  freelancerId: string,
+  query: {
+    page?: number;
+    limit?: number;
+    from?: string;
+    to?: string;
+    status?: FreelancerAvailabilityStatus;
+  },
+) {
+  return paginate(prisma.freelancerAvailability, {
+    where: andWhere(
+      { freelancerId, freelancer: { organizationId, deletedAt: null } },
+      query.status ? { status: query.status } : undefined,
+      query.from ? { date: { gte: toDateOnly(query.from) } } : undefined,
+      query.to ? { date: { lte: toDateOnly(query.to) } } : undefined,
+    ),
+    orderBy: { date: 'asc' },
+    page: query.page,
+    limit: query.limit,
+  });
+}
+
+export async function upsertAvailability(
+  auth: AuthContext,
+  freelancerId: string,
+  input: {
+    date: string;
+    status: FreelancerAvailabilityStatus;
+    startTime?: Date | null;
+    endTime?: Date | null;
+    notes?: string | null;
+  },
+  ctx: AuditRequestContext,
+) {
+  return prisma.$transaction(async (tx) => {
+    await findScoped(tx.freelancer, auth.organizationId, freelancerId, 'Freelancer');
+    const date = toDateOnly(input.date);
+    const availability = await tx.freelancerAvailability.upsert({
+      where: { freelancerId_date: { freelancerId, date } },
+      create: {
+        freelancerId,
+        date,
+        status: input.status,
+        startTime: input.startTime,
+        endTime: input.endTime,
+        notes: input.notes,
+      },
+      update: { status: input.status, startTime: input.startTime, endTime: input.endTime, notes: input.notes },
+    });
+    await recordAudit(tx, ctx, {
+      action: 'UPDATE',
+      entityType: 'FreelancerAvailability',
+      entityId: availability.id,
+      summary: 'Freelancer availability saved',
+      newData: availability,
+    });
+    return availability;
+  });
+}
+
+export async function createPortfolioItem(
+  auth: AuthContext,
+  freelancerId: string,
+  input: {
+    fileObjectId: string;
+    title: string;
+    description?: string;
+    category?: string;
+    sortOrder?: number;
+    isPublished?: boolean;
+  },
+  ctx: AuditRequestContext,
+) {
+  return prisma.$transaction(async (tx) => {
+    await findScoped(tx.freelancer, auth.organizationId, freelancerId, 'Freelancer');
+    const file = await tx.fileObject.findFirst({
+      where: { id: input.fileObjectId, organizationId: auth.organizationId, deletedAt: null },
+      select: { id: true },
+    });
+    if (!file) throw notFound('File');
+    const item = await tx.freelancerPortfolioItem.create({ data: { freelancerId, ...input } });
+    await recordAudit(tx, ctx, {
+      action: 'CREATE',
+      entityType: 'FreelancerPortfolioItem',
+      entityId: item.id,
+      summary: 'Freelancer portfolio item added',
+      newData: item,
+    });
+    return item;
+  });
+}
+
+export function listPortfolioItems(organizationId: string, freelancerId: string) {
+  return prisma.freelancerPortfolioItem.findMany({
+    where: { freelancerId, freelancer: { organizationId, deletedAt: null } },
+    include: { fileObject: true },
+    orderBy: [{ sortOrder: 'asc' }, { createdAt: 'desc' }],
+  });
+}
+
+export async function updatePortfolioItem(
+  auth: AuthContext,
+  freelancerId: string,
+  itemId: string,
+  input: Partial<{
+    title: string;
+    description: string;
+    category: string;
+    sortOrder: number;
+    isPublished: boolean;
+  }>,
+  ctx: AuditRequestContext,
+) {
+  return prisma.$transaction(async (tx) => {
+    const existing = await tx.freelancerPortfolioItem.findFirst({
+      where: { id: itemId, freelancerId, freelancer: { organizationId: auth.organizationId } },
+    });
+    if (!existing) throw notFound('Freelancer portfolio item');
+    const updated = await tx.freelancerPortfolioItem.update({ where: { id: itemId }, data: input });
+    await recordAudit(tx, ctx, {
+      action: 'UPDATE',
+      entityType: 'FreelancerPortfolioItem',
+      entityId: itemId,
+      summary: 'Freelancer portfolio item updated',
+      oldData: existing,
+      newData: updated,
+    });
+    return updated;
+  });
+}
+
+export function listApplications(
+  organizationId: string,
+  query: {
+    page?: number;
+    limit?: number;
+    search?: string;
+    status?: FreelancerApplicationStatus;
+    primarySkill?: CrewRole;
+    city?: string;
+    sortBy?: string;
+    sortOrder?: string;
+  },
+) {
+  const sort = resolveSort(query.sortBy, query.sortOrder, APPLICATION_SORTABLE, 'submittedAt');
+  return paginate(prisma.freelancerApplication, {
+    where: andWhere(
+      { organizationId },
+      query.status ? { status: query.status } : undefined,
+      query.primarySkill ? { primarySkill: query.primarySkill } : undefined,
+      query.city ? { city: { equals: query.city, mode: 'insensitive' } } : undefined,
+      searchFilter(query.search, ['fullName', 'phone', 'email', 'city']),
+    ),
+    orderBy: { [sort.field]: sort.direction },
+    page: query.page,
+    limit: query.limit,
+    include: { freelancer: { select: { id: true, code: true, fullName: true } }, reviewedBy: { select: { id: true, fullName: true } } },
+  });
+}
+
+export async function createApplication(
+  auth: AuthContext,
+  input: {
+    freelancerId?: string;
+    fullName: string;
+    phone: string;
+    whatsapp?: string;
+    email?: string;
+    city?: string;
+    primarySkill?: CrewRole;
+    skills?: string[];
+    experienceYears?: number;
+    portfolioUrl?: string;
+    expectedRate?: Prisma.Decimal.Value;
+    rateType?: RateType;
+    notes?: string;
+  },
+  ctx: AuditRequestContext,
+) {
+  return prisma.$transaction(async (tx) => {
+    if (input.freelancerId) {
+      await findScoped(tx.freelancer, auth.organizationId, input.freelancerId, 'Freelancer');
+    }
+    const duplicate = await tx.freelancerApplication.findFirst({
+      where: {
+        organizationId: auth.organizationId,
+        status: { in: ACTIVE_APPLICATION_STATUSES },
+        OR: [
+          { phone: input.phone },
+          ...(input.email ? [{ email: input.email.toLowerCase() }] : []),
+        ],
+      },
+      select: { id: true },
+    });
+    if (duplicate) throw conflict('An active freelancer application already exists for this applicant');
+    const application = await tx.freelancerApplication.create({
+      data: {
+        organizationId: auth.organizationId,
+        ...input,
+        email: input.email?.toLowerCase(),
+        skills: input.skills ?? [],
+        status: 'SUBMITTED',
+        expectedRate: input.expectedRate === undefined ? undefined : money(input.expectedRate),
+      },
+    });
+    await recordAudit(tx, ctx, {
+      action: 'CREATE',
+      entityType: 'FreelancerApplication',
+      entityId: application.id,
+      summary: 'Freelancer application created',
+      newData: application,
+    });
+    return application;
+  });
+}
+
+export async function reviewApplication(
+  auth: AuthContext,
+  id: string,
+  input: {
+    status: FreelancerApplicationStatus;
+    freelancerId?: string;
+    rejectionReason?: string;
+    notes?: string;
+  },
+  ctx: AuditRequestContext,
+) {
+  return prisma.$transaction(async (tx) => {
+    const existing = await tx.freelancerApplication.findFirst({
+      where: { id, organizationId: auth.organizationId },
+    });
+    if (!existing) throw notFound('Freelancer application');
+    if (input.freelancerId) {
+      await findScoped(tx.freelancer, auth.organizationId, input.freelancerId, 'Freelancer');
+    }
+    const updated = await tx.freelancerApplication.update({
+      where: { id },
+      data: {
+        status: input.status,
+        freelancerId: input.freelancerId,
+        rejectionReason: input.rejectionReason,
+        notes: input.notes,
+        reviewedById: auth.userId,
+        reviewedAt: new Date(),
+      },
+    });
+    await recordAudit(tx, ctx, {
+      action: 'UPDATE',
+      entityType: 'FreelancerApplication',
+      entityId: id,
+      summary: `Freelancer application marked ${input.status}`,
+      oldData: existing,
+      newData: updated,
+    });
+    return updated;
+  });
+}
+
+export function listConnections(
+  organizationId: string,
+  query: {
+    page?: number;
+    limit?: number;
+    status?: FreelancerConnectionStatus;
+    projectId?: string;
+    shootId?: string;
+    freelancerId?: string;
+    sortBy?: string;
+    sortOrder?: string;
+  },
+) {
+  const sort = resolveSort(query.sortBy, query.sortOrder, CONNECTION_SORTABLE, 'createdAt');
+  return paginate(prisma.freelancerConnection, {
+    where: andWhere(
+      { organizationId },
+      query.status ? { status: query.status } : undefined,
+      query.projectId ? { projectId: query.projectId } : undefined,
+      query.shootId ? { shootId: query.shootId } : undefined,
+      query.freelancerId ? { freelancerId: query.freelancerId } : undefined,
+    ),
+    orderBy: { [sort.field]: sort.direction },
+    page: query.page,
+    limit: query.limit,
+    include: {
+      freelancer: { select: { id: true, code: true, fullName: true, primarySkill: true, city: true } },
+      project: { select: { id: true, projectNumber: true, name: true } },
+      shoot: { select: { id: true, title: true, shootDate: true } },
+      createdBy: { select: { id: true, fullName: true } },
+    },
+  });
+}
+
+export async function createConnection(
+  auth: AuthContext,
+  input: {
+    freelancerId: string;
+    projectId?: string;
+    shootId?: string;
+    status?: FreelancerConnectionStatus;
+    notes?: string;
+  },
+  ctx: AuditRequestContext,
+) {
+  return prisma.$transaction(async (tx) => {
+    await findScoped(tx.freelancer, auth.organizationId, input.freelancerId, 'Freelancer');
+    if (input.projectId) await findScoped(tx.project, auth.organizationId, input.projectId, 'Project');
+    if (input.shootId) {
+      const shoot = await findScoped<{ id: string; projectId: string }>(
+        tx.shoot,
+        auth.organizationId,
+        input.shootId,
+        'Shoot',
+        { select: { id: true, projectId: true } },
+      );
+      if (input.projectId && shoot.projectId !== input.projectId) {
+        throw conflict('Shoot does not belong to the selected project');
+      }
+    }
+
+    const connection = await tx.freelancerConnection.create({
+      data: {
+        organizationId: auth.organizationId,
+        ...input,
+        status: input.status ?? 'INTERESTED',
+        createdById: auth.userId,
+      },
+    });
+    await recordAudit(tx, ctx, {
+      action: 'CREATE',
+      entityType: 'FreelancerConnection',
+      entityId: connection.id,
+      summary: `Freelancer connection marked ${connection.status}`,
+      newData: connection,
+    });
+    return connection;
+  });
+}
+
+export async function updateConnection(
+  auth: AuthContext,
+  id: string,
+  input: {
+    status?: FreelancerConnectionStatus;
+    notes?: string | null;
+  },
+  ctx: AuditRequestContext,
+) {
+  return prisma.$transaction(async (tx) => {
+    const existing = await tx.freelancerConnection.findFirst({
+      where: { id, organizationId: auth.organizationId },
+    });
+    if (!existing) throw notFound('Freelancer connection');
+    const updated = await tx.freelancerConnection.update({ where: { id }, data: input });
+    await recordAudit(tx, ctx, {
+      action: 'UPDATE',
+      entityType: 'FreelancerConnection',
+      entityId: id,
+      summary: 'Freelancer connection updated',
+      oldData: existing,
+      newData: updated,
+    });
+    return updated;
   });
 }

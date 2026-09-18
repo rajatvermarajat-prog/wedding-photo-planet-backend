@@ -187,6 +187,35 @@ export const deliveryStatusSchema = z.object({
 
 export const FREELANCER_STATUS = z.enum(['ACTIVE', 'INACTIVE', 'UNAVAILABLE', 'SUSPENDED']);
 export const RATE_TYPE = z.enum(['PER_DAY', 'PER_HALF_DAY', 'PER_EVENT', 'PER_HOUR', 'FIXED']);
+export const BILLING_INTERVAL = z.enum(['MONTHLY', 'QUARTERLY', 'YEARLY', 'ONE_TIME']);
+export const FREELANCER_SUBSCRIPTION_STATUS = z.enum([
+  'PENDING',
+  'ACTIVE',
+  'PAST_DUE',
+  'CANCELED',
+  'EXPIRED',
+]);
+export const FREELANCER_AVAILABILITY_STATUS = z.enum([
+  'AVAILABLE',
+  'PARTIALLY_AVAILABLE',
+  'UNAVAILABLE',
+]);
+export const FREELANCER_APPLICATION_STATUS = z.enum([
+  'DRAFT',
+  'SUBMITTED',
+  'UNDER_REVIEW',
+  'APPROVED',
+  'REJECTED',
+  'WITHDRAWN',
+]);
+export const FREELANCER_CONNECTION_STATUS = z.enum([
+  'INTERESTED',
+  'CONTACTED',
+  'ACCEPTED',
+  'DECLINED',
+  'EXPIRED',
+  'ASSIGNED',
+]);
 
 export const freelancerListQuery = listQuery.extend({
   status: FREELANCER_STATUS.optional(),
@@ -236,6 +265,127 @@ export const freelancerPayoutSchema = z.object({
     .optional(),
   transactionRef: z.string().max(120).optional(),
   notes: z.string().max(2000).optional(),
+});
+
+export const freelancerPlanListQuery = listQuery.extend({
+  active: z.enum(['true', 'false']).transform((v) => v === 'true').optional(),
+});
+
+export const createFreelancerPlanSchema = z.object({
+  name: z.string().trim().min(1).max(120),
+  slug: z.string().trim().min(1).max(120).regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/, 'Use a URL-safe slug'),
+  description: z.string().max(5000).optional(),
+  price: nonNegativeDecimal,
+  currency: z.string().trim().length(3).toUpperCase().optional(),
+  billingInterval: BILLING_INTERVAL.optional(),
+  features: z.unknown().optional(),
+  limits: z.unknown().optional(),
+  isActive: z.boolean().optional(),
+});
+
+export const updateFreelancerPlanSchema = createFreelancerPlanSchema.partial();
+
+export const createFreelancerSubscriptionSchema = z.object({
+  planId: uuid,
+  status: FREELANCER_SUBSCRIPTION_STATUS.optional(),
+  startedAt: isoDateTime.optional(),
+  currentPeriodStart: isoDateTime.optional(),
+  currentPeriodEnd: isoDateTime.optional(),
+  canceledAt: isoDateTime.optional(),
+  externalCustomerId: z.string().max(160).optional(),
+  externalSubscriptionId: z.string().max(160).optional(),
+  metadata: z.unknown().optional(),
+});
+
+export const updateFreelancerSubscriptionSchema = createFreelancerSubscriptionSchema
+  .partial()
+  .omit({ planId: true });
+
+export const availabilityListQuery = listQuery.extend({
+  status: FREELANCER_AVAILABILITY_STATUS.optional(),
+});
+
+export const upsertAvailabilitySchema = z.object({
+  date: dateOnly,
+  status: FREELANCER_AVAILABILITY_STATUS,
+  startTime: isoDateTime.optional().nullable(),
+  endTime: isoDateTime.optional().nullable(),
+  notes: z.string().max(2000).optional().nullable(),
+}).refine((v) => !v.startTime || !v.endTime || v.endTime >= v.startTime, {
+  message: 'endTime cannot be before startTime',
+  path: ['endTime'],
+});
+
+export const createPortfolioItemSchema = z.object({
+  fileObjectId: uuid,
+  title: z.string().trim().min(1).max(160),
+  description: z.string().max(5000).optional(),
+  category: z.string().trim().max(80).optional(),
+  sortOrder: z.coerce.number().int().min(0).max(100000).optional(),
+  isPublished: z.boolean().optional(),
+});
+
+export const updatePortfolioItemSchema = createPortfolioItemSchema
+  .partial()
+  .omit({ fileObjectId: true });
+
+export const freelancerApplicationListQuery = listQuery.extend({
+  status: FREELANCER_APPLICATION_STATUS.optional(),
+  primarySkill: CREW_ROLE.optional(),
+  city: z.string().max(80).optional(),
+});
+
+export const createFreelancerApplicationSchema = z.object({
+  freelancerId: uuid.optional(),
+  fullName: z.string().trim().min(1).max(160),
+  phone,
+  whatsapp: phone.optional(),
+  email: email.optional(),
+  city: z.string().max(80).optional(),
+  primarySkill: CREW_ROLE.optional(),
+  skills: z.array(z.string().max(60)).max(30).optional(),
+  experienceYears: z.coerce.number().int().min(0).max(70).optional(),
+  portfolioUrl: z.string().url().max(1024).optional(),
+  expectedRate: nonNegativeDecimal.optional(),
+  rateType: RATE_TYPE.optional(),
+  notes: z.string().max(5000).optional(),
+});
+
+export const reviewFreelancerApplicationSchema = z.object({
+  status: FREELANCER_APPLICATION_STATUS,
+  freelancerId: uuid.optional(),
+  rejectionReason: z.string().max(500).optional(),
+  notes: z.string().max(5000).optional(),
+});
+
+export const freelancerConnectionListQuery = listQuery.extend({
+  status: FREELANCER_CONNECTION_STATUS.optional(),
+  projectId: uuid.optional(),
+  shootId: uuid.optional(),
+  freelancerId: uuid.optional(),
+});
+
+export const createFreelancerConnectionSchema = z.object({
+  freelancerId: uuid,
+  projectId: uuid.optional(),
+  shootId: uuid.optional(),
+  status: FREELANCER_CONNECTION_STATUS.optional(),
+  notes: z.string().max(5000).optional(),
+});
+
+export const updateFreelancerConnectionSchema = z.object({
+  status: FREELANCER_CONNECTION_STATUS.optional(),
+  notes: z.string().max(5000).optional().nullable(),
+});
+
+export const freelancerSubscriptionParams = z.object({
+  id: uuid,
+  subscriptionId: uuid,
+});
+
+export const freelancerPortfolioItemParams = z.object({
+  id: uuid,
+  itemId: uuid,
 });
 
 // --- Attendance & leave ---------------------------------------------------

@@ -865,7 +865,9 @@ export async function updateProjectDataBackup(
       }
     }
     const capacity = Number(dataBackup.totalStorageCapacityGb ?? dataBackup.totalStorageCapacityGB);
-    const { totalStorageCapacityGb, totalStorageCapacityGB, ...backupOnly } = dataBackup;
+    const backupOnly = { ...dataBackup };
+    delete backupOnly.totalStorageCapacityGb;
+    delete backupOnly.totalStorageCapacityGB;
     parsed.dataBackup = backupOnly;
     const updated = await tx.project.update({
       where: { id: projectId },

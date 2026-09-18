@@ -6,14 +6,25 @@ import { idempotent } from '../middleware/idempotency';
 import { idParam } from '../validators/common.validator';
 import {
   attendanceListQuery,
+  availabilityListQuery,
   createDeliverySchema,
+  createFreelancerApplicationSchema,
+  createFreelancerConnectionSchema,
   createFreelancerSchema,
+  createFreelancerPlanSchema,
+  createFreelancerSubscriptionSchema,
+  createPortfolioItemSchema,
   createTaskSchema,
   deliveryListQuery,
   employeePerformanceParams,
   deliveryStatusSchema,
+  freelancerApplicationListQuery,
+  freelancerConnectionListQuery,
   freelancerListQuery,
+  freelancerPlanListQuery,
+  freelancerPortfolioItemParams,
   freelancerPayoutSchema,
+  freelancerSubscriptionParams,
   leaveListQuery,
   markAttendanceSchema,
   monthlyAttendanceSummaryQuery,
@@ -26,11 +37,17 @@ import {
   reassignTaskSchema,
   requestLeaveSchema,
   reviewLeaveSchema,
+  reviewFreelancerApplicationSchema,
   taskListQuery,
   taskStatusSchema,
   updateDeliverySchema,
+  updateFreelancerConnectionSchema,
   updateFreelancerSchema,
+  updateFreelancerPlanSchema,
+  updateFreelancerSubscriptionSchema,
+  updatePortfolioItemSchema,
   updateTaskSchema,
+  upsertAvailabilitySchema,
 } from '../validators/ops.validator';
 
 export const taskRouter = Router();
@@ -120,6 +137,60 @@ deliveryRouter.delete(
 export const freelancerRouter = Router();
 
 freelancerRouter.get(
+  '/plans',
+  requirePermission('FREELANCER_VIEW'),
+  validate({ query: freelancerPlanListQuery }),
+  controller.listFreelancerPlans,
+);
+freelancerRouter.post(
+  '/plans',
+  requirePermission('FREELANCER_PLAN_MANAGE'),
+  validate({ body: createFreelancerPlanSchema }),
+  controller.createFreelancerPlan,
+);
+freelancerRouter.patch(
+  '/plans/:id',
+  requirePermission('FREELANCER_PLAN_MANAGE'),
+  validate({ params: idParam, body: updateFreelancerPlanSchema }),
+  controller.updateFreelancerPlan,
+);
+freelancerRouter.get(
+  '/applications',
+  requirePermission('FREELANCER_VIEW'),
+  validate({ query: freelancerApplicationListQuery }),
+  controller.listFreelancerApplications,
+);
+freelancerRouter.post(
+  '/applications',
+  requirePermission('FREELANCER_APPLICATION_REVIEW'),
+  validate({ body: createFreelancerApplicationSchema }),
+  controller.createFreelancerApplication,
+);
+freelancerRouter.post(
+  '/applications/:id/review',
+  requirePermission('FREELANCER_APPLICATION_REVIEW'),
+  validate({ params: idParam, body: reviewFreelancerApplicationSchema }),
+  controller.reviewFreelancerApplication,
+);
+freelancerRouter.get(
+  '/connections',
+  requirePermission('FREELANCER_VIEW'),
+  validate({ query: freelancerConnectionListQuery }),
+  controller.listFreelancerConnections,
+);
+freelancerRouter.post(
+  '/connections',
+  requirePermission('FREELANCER_CONNECTION_MANAGE'),
+  validate({ body: createFreelancerConnectionSchema }),
+  controller.createFreelancerConnection,
+);
+freelancerRouter.patch(
+  '/connections/:id',
+  requirePermission('FREELANCER_CONNECTION_MANAGE'),
+  validate({ params: idParam, body: updateFreelancerConnectionSchema }),
+  controller.updateFreelancerConnection,
+);
+freelancerRouter.get(
   '/',
   requirePermission('FREELANCER_VIEW'),
   validate({ query: freelancerListQuery }),
@@ -161,6 +232,54 @@ freelancerRouter.post(
   validate({ params: idParam, body: freelancerPayoutSchema }),
   idempotent({ required: true }),
   controller.recordPayout,
+);
+freelancerRouter.get(
+  '/:id/subscriptions',
+  requirePermission('FREELANCER_VIEW'),
+  validate({ params: idParam }),
+  controller.listFreelancerSubscriptions,
+);
+freelancerRouter.post(
+  '/:id/subscriptions',
+  requirePermission('FREELANCER_PLAN_MANAGE'),
+  validate({ params: idParam, body: createFreelancerSubscriptionSchema }),
+  controller.createFreelancerSubscription,
+);
+freelancerRouter.patch(
+  '/:id/subscriptions/:subscriptionId',
+  requirePermission('FREELANCER_PLAN_MANAGE'),
+  validate({ params: freelancerSubscriptionParams, body: updateFreelancerSubscriptionSchema }),
+  controller.updateFreelancerSubscription,
+);
+freelancerRouter.get(
+  '/:id/availability',
+  requirePermission('FREELANCER_VIEW'),
+  validate({ params: idParam, query: availabilityListQuery }),
+  controller.listFreelancerAvailability,
+);
+freelancerRouter.put(
+  '/:id/availability',
+  requirePermission('FREELANCER_UPDATE'),
+  validate({ params: idParam, body: upsertAvailabilitySchema }),
+  controller.upsertFreelancerAvailability,
+);
+freelancerRouter.get(
+  '/:id/portfolio',
+  requirePermission('FREELANCER_VIEW'),
+  validate({ params: idParam }),
+  controller.listFreelancerPortfolio,
+);
+freelancerRouter.post(
+  '/:id/portfolio',
+  requirePermission('FREELANCER_UPDATE'),
+  validate({ params: idParam, body: createPortfolioItemSchema }),
+  controller.createFreelancerPortfolioItem,
+);
+freelancerRouter.patch(
+  '/:id/portfolio/:itemId',
+  requirePermission('FREELANCER_UPDATE'),
+  validate({ params: freelancerPortfolioItemParams, body: updatePortfolioItemSchema }),
+  controller.updateFreelancerPortfolioItem,
 );
 
 export const attendanceRouter = Router();

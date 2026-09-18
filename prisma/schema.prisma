@@ -206,6 +206,45 @@ enum FreelancerStatus {
   SUSPENDED
 }
 
+enum BillingInterval {
+  MONTHLY
+  QUARTERLY
+  YEARLY
+  ONE_TIME
+}
+
+enum FreelancerSubscriptionStatus {
+  PENDING
+  ACTIVE
+  PAST_DUE
+  CANCELED
+  EXPIRED
+}
+
+enum FreelancerAvailabilityStatus {
+  AVAILABLE
+  PARTIALLY_AVAILABLE
+  UNAVAILABLE
+}
+
+enum FreelancerApplicationStatus {
+  DRAFT
+  SUBMITTED
+  UNDER_REVIEW
+  APPROVED
+  REJECTED
+  WITHDRAWN
+}
+
+enum FreelancerConnectionStatus {
+  INTERESTED
+  CONTACTED
+  ACCEPTED
+  DECLINED
+  EXPIRED
+  ASSIGNED
+}
+
 enum RateType {
   PER_DAY
   PER_HALF_DAY
@@ -467,6 +506,9 @@ model Organization {
   departments      Department[]
   designations     Designation[]
   freelancers      Freelancer[]
+  freelancerPlans  FreelancerPlan[]
+  freelancerApplications FreelancerApplication[]
+  freelancerConnections FreelancerConnection[]
   tasks            Task[]
   deliveries       Delivery[]
   quotations       Quotation[]
@@ -593,6 +635,8 @@ model User {
   createdIncomes    Income[]    @relation("IncomeCreatedBy")
   approvedExpenses  Expense[]   @relation("ExpenseApprovedBy")
   freelancerPayouts FreelancerPayout[] @relation("FreelancerPayoutPaidBy")
+  reviewedFreelancerApplications FreelancerApplication[] @relation("FreelancerApplicationReviewedBy")
+  createdFreelancerConnections   FreelancerConnection[]  @relation("FreelancerConnectionCreatedBy")
 
   attendances       Attendance[]   @relation("AttendanceUser")
   attendancesMarked Attendance[]   @relation("AttendanceMarkedBy")
@@ -1083,6 +1127,7 @@ model Project {
   communications ClientCommunication[]
   attendances    Attendance[]
   paymentMilestones PaymentMilestone[]
+  freelancerConnections FreelancerConnection[]
 
   @@unique([organizationId, projectNumber])
   @@index([organizationId, status])
@@ -1224,6 +1269,7 @@ model Shoot {
   assignments ShootAssignment[]
   tasks       Task[]
   expenses    Expense[]
+  freelancerConnections FreelancerConnection[]
 
   @@index([projectId])
   @@index([eventId])
@@ -1309,6 +1355,10 @@ model Freelancer {
   panNumber      String?          @map("pan_number") @db.VarChar(16)
   gstNumber      String?          @map("gst_number") @db.VarChar(32)
   notes          String?          @db.Text
+  passwordHash   String?          @map("password_hash") @db.VarChar(255)
+  failedLoginAttempts Int         @default(0) @map("failed_login_attempts")
+  lockedUntil    DateTime?        @map("locked_until") @db.Timestamptz(6)
+  lastLoginAt    DateTime?        @map("last_login_at") @db.Timestamptz(6)
   createdAt      DateTime         @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt      DateTime         @updatedAt @map("updated_at") @db.Timestamptz(6)
   deletedAt      DateTime?        @map("deleted_at") @db.Timestamptz(6)
@@ -1319,12 +1369,185 @@ model Freelancer {
   assignments ShootAssignment[]
   payouts     FreelancerPayout[]
   expenses    Expense[]
+  subscriptions FreelancerSubscription[]
+  availability  FreelancerAvailability[]
+  portfolioItems FreelancerPortfolioItem[]
+  applications  FreelancerApplication[]
+  connections   FreelancerConnection[]
+  sessions      FreelancerSession[]
 
   @@unique([organizationId, code])
   @@index([organizationId, status])
   @@index([organizationId, primarySkill])
   @@index([phone])
   @@map("freelancers")
+}
+
+model FreelancerSession {
+  id               String        @id @default(uuid()) @db.Uuid
+  freelancerId     String        @map("freelancer_id") @db.Uuid
+  refreshTokenHash String        @unique @map("refresh_token_hash") @db.VarChar(64)
+  status           SessionStatus @default(ACTIVE)
+  ipAddress        String?       @map("ip_address") @db.Inet
+  userAgent        String?       @map("user_agent") @db.VarChar(512)
+  issuedAt         DateTime      @default(now()) @map("issued_at") @db.Timestamptz(6)
+  lastUsedAt       DateTime      @default(now()) @map("last_used_at") @db.Timestamptz(6)
+  expiresAt        DateTime      @map("expires_at") @db.Timestamptz(6)
+  revokedAt        DateTime?     @map("revoked_at") @db.Timestamptz(6)
+  revokeReason     LogoutReason? @map("revoke_reason")
+
+  freelancer Freelancer @relation(fields: [freelancerId], references: [id], onDelete: Cascade)
+
+  @@index([freelancerId, status])
+  @@index([expiresAt])
+  @@map("freelancer_sessions")
+}
+
+model FreelancerPlan {
+  id              String          @id @default(uuid()) @db.Uuid
+  organizationId  String          @map("organization_id") @db.Uuid
+  name            String          @db.VarChar(120)
+  slug            String          @db.VarChar(120)
+  description     String?         @db.Text
+  price           Decimal         @default(0) @db.Decimal(14, 2)
+  currency        String          @default("INR") @db.VarChar(3)
+  billingInterval BillingInterval @default(MONTHLY) @map("billing_interval")
+  features        Json?           @db.JsonB
+  limits          Json?           @db.JsonB
+  isActive        Boolean         @default(true) @map("is_active")
+  createdAt       DateTime        @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime        @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  subscriptions FreelancerSubscription[]
+
+  @@unique([organizationId, slug])
+  @@index([organizationId, isActive])
+  @@map("freelancer_plans")
+}
+
+model FreelancerSubscription {
+  id                     String                       @id @default(uuid()) @db.Uuid
+  freelancerId           String                       @map("freelancer_id") @db.Uuid
+  planId                 String                       @map("plan_id") @db.Uuid
+  status                 FreelancerSubscriptionStatus @default(PENDING)
+  startedAt              DateTime?                    @map("started_at") @db.Timestamptz(6)
+  currentPeriodStart     DateTime?                    @map("current_period_start") @db.Timestamptz(6)
+  currentPeriodEnd       DateTime?                    @map("current_period_end") @db.Timestamptz(6)
+  canceledAt             DateTime?                    @map("canceled_at") @db.Timestamptz(6)
+  externalCustomerId     String?                      @map("external_customer_id") @db.VarChar(160)
+  externalSubscriptionId String?                      @map("external_subscription_id") @db.VarChar(160)
+  metadata               Json?                        @db.JsonB
+  createdAt              DateTime                     @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt              DateTime                     @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  freelancer Freelancer     @relation(fields: [freelancerId], references: [id], onDelete: Cascade)
+  plan       FreelancerPlan @relation(fields: [planId], references: [id], onDelete: Restrict)
+
+  @@index([freelancerId, status])
+  @@index([planId, status])
+  @@index([status, currentPeriodEnd])
+  @@map("freelancer_subscriptions")
+}
+
+model FreelancerAvailability {
+  id           String                       @id @default(uuid()) @db.Uuid
+  freelancerId String                       @map("freelancer_id") @db.Uuid
+  date         DateTime                     @db.Date
+  status       FreelancerAvailabilityStatus @default(AVAILABLE)
+  startTime    DateTime?                    @map("start_time") @db.Timestamptz(6)
+  endTime      DateTime?                    @map("end_time") @db.Timestamptz(6)
+  notes        String?                      @db.Text
+  createdAt    DateTime                     @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt    DateTime                     @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  freelancer Freelancer @relation(fields: [freelancerId], references: [id], onDelete: Cascade)
+
+  @@unique([freelancerId, date])
+  @@index([date, status])
+  @@index([freelancerId, status])
+  @@map("freelancer_availability")
+}
+
+model FreelancerPortfolioItem {
+  id           String   @id @default(uuid()) @db.Uuid
+  freelancerId String   @map("freelancer_id") @db.Uuid
+  fileObjectId String   @map("file_object_id") @db.Uuid
+  title        String   @db.VarChar(160)
+  description  String?  @db.Text
+  category     String?  @db.VarChar(80)
+  sortOrder    Int      @default(0) @map("sort_order")
+  isPublished  Boolean  @default(false) @map("is_published")
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt    DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  freelancer Freelancer @relation(fields: [freelancerId], references: [id], onDelete: Cascade)
+  fileObject FileObject @relation(fields: [fileObjectId], references: [id], onDelete: Restrict)
+
+  @@index([freelancerId, isPublished, sortOrder])
+  @@index([fileObjectId])
+  @@map("freelancer_portfolio_items")
+}
+
+model FreelancerApplication {
+  id              String                      @id @default(uuid()) @db.Uuid
+  organizationId  String                      @map("organization_id") @db.Uuid
+  freelancerId    String?                     @map("freelancer_id") @db.Uuid
+  fullName        String                      @map("full_name") @db.VarChar(160)
+  phone           String                      @db.VarChar(32)
+  whatsapp        String?                     @db.VarChar(32)
+  email           String?                     @db.VarChar(160)
+  city            String?                     @db.VarChar(80)
+  primarySkill    CrewRole                    @default(LEAD_PHOTOGRAPHER) @map("primary_skill")
+  skills          String[]                    @default([])
+  experienceYears Int?                        @map("experience_years")
+  portfolioUrl    String?                     @map("portfolio_url") @db.VarChar(1024)
+  expectedRate    Decimal?                    @map("expected_rate") @db.Decimal(14, 2)
+  rateType        RateType                    @default(PER_DAY) @map("rate_type")
+  status          FreelancerApplicationStatus @default(SUBMITTED)
+  submittedAt     DateTime?                   @default(now()) @map("submitted_at") @db.Timestamptz(6)
+  reviewedAt      DateTime?                   @map("reviewed_at") @db.Timestamptz(6)
+  reviewedById    String?                     @map("reviewed_by_id") @db.Uuid
+  rejectionReason String?                     @map("rejection_reason") @db.VarChar(500)
+  notes           String?                     @db.Text
+  createdAt       DateTime                    @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime                    @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  freelancer   Freelancer?  @relation(fields: [freelancerId], references: [id], onDelete: SetNull)
+  reviewedBy   User?        @relation("FreelancerApplicationReviewedBy", fields: [reviewedById], references: [id], onDelete: SetNull)
+
+  @@index([organizationId, status, submittedAt])
+  @@index([organizationId, primarySkill])
+  @@index([phone])
+  @@index([freelancerId])
+  @@map("freelancer_applications")
+}
+
+model FreelancerConnection {
+  id             String                     @id @default(uuid()) @db.Uuid
+  organizationId String                     @map("organization_id") @db.Uuid
+  freelancerId   String                     @map("freelancer_id") @db.Uuid
+  projectId      String?                    @map("project_id") @db.Uuid
+  shootId        String?                    @map("shoot_id") @db.Uuid
+  createdById    String?                    @map("created_by_id") @db.Uuid
+  status         FreelancerConnectionStatus @default(INTERESTED)
+  notes          String?                    @db.Text
+  createdAt      DateTime                   @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime                   @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  freelancer   Freelancer   @relation(fields: [freelancerId], references: [id], onDelete: Cascade)
+  project      Project?     @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  shoot        Shoot?       @relation(fields: [shootId], references: [id], onDelete: SetNull)
+  createdBy    User?        @relation("FreelancerConnectionCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+
+  @@index([organizationId, status, createdAt])
+  @@index([freelancerId, status])
+  @@index([projectId, status])
+  @@index([shootId, status])
+  @@map("freelancer_connections")
 }
 
 /// A freelancer settlement. Every payout writes one matching Expense row in the
@@ -1999,6 +2222,7 @@ model FileObject {
   project      Project?     @relation(fields: [projectId], references: [id], onDelete: SetNull)
 
   expenseAttachments ExpenseAttachment[]
+  freelancerPortfolioItems FreelancerPortfolioItem[]
 
   @@unique([bucket, objectKey])
   @@index([entityType, entityId])
