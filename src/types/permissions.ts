@@ -116,6 +116,9 @@ export const PERMISSIONS: PermissionDefinition[] = [
     ['FREELANCER_UPDATE', 'Update freelancer'],
     ['FREELANCER_DELETE', 'Delete freelancer', true],
     ['FREELANCER_PAY', 'Record freelancer payout', true],
+    ['FREELANCER_PLAN_MANAGE', 'Manage freelancer plans and subscriptions', true],
+    ['FREELANCER_APPLICATION_REVIEW', 'Review freelancer applications', true],
+    ['FREELANCER_CONNECTION_MANAGE', 'Manage freelancer interest and connections'],
   ]),
   ...define('task', [
     ['TASK_VIEW', 'View tasks'],
@@ -235,6 +238,7 @@ const MANAGER_EXCLUDED = new Set([
   'PAYMENT_ALLOCATE',
   'PAYMENT_MILESTONE_VIEW',
   'PAYMENT_MILESTONE_MANAGE',
+  'FREELANCER_PLAN_MANAGE',
   'ROLE_CREATE',
   'ROLE_UPDATE',
   'ROLE_DELETE',

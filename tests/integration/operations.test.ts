@@ -435,6 +435,85 @@ describe('operations: expenses, tasks, deliveries, data management', () => {
     expect(unchangedB.availableStorageGb).toBe(4800);
   });
 
+  // --- Personal sheet -----------------------------------------------------
+
+  it('creates a usable blank sheet the first time a user opens it', async () => {
+    const response = await authed(memberToken).get(`${base}/me/sheet`).expect(200);
+
+    // The grid editor cannot render zero columns or zero rows.
+    expect(response.body.data.data.columns.length).toBeGreaterThan(0);
+    expect(response.body.data.data.rows.length).toBeGreaterThan(0);
+    expect(response.body.data.data.columns[0].label).toBe('A');
+    expect(response.body.data.id).toBeTruthy();
+  });
+
+  it('returns the same sheet on a second open rather than a new one', async () => {
+    const first = await authed(memberToken).get(`${base}/me/sheet`).expect(200);
+    const second = await authed(memberToken).get(`${base}/me/sheet`).expect(200);
+
+    expect(second.body.data.id).toBe(first.body.data.id);
+    expect(await prisma.personalSheet.count({ where: { userId: org.member.id } })).toBe(1);
+  });
+
+  it('saves and reads back the grid, including numeric cells', async () => {
+    const sheet = {
+      columns: [
+        { id: 'column-1', label: 'Shoot' },
+        { id: 'column-2', label: 'Amount' },
+      ],
+      rows: [
+        { id: 'row-1', cells: { 'column-1': 'Sangeet', 'column-2': 42000 } },
+        { id: 'row-2', cells: {} },
+      ],
+    };
+
+    const saved = await authed(memberToken).put(`${base}/me/sheet`).send(sheet).expect(200);
+    expect(saved.body.data.data).toEqual(sheet);
+
+    const reread = await authed(memberToken).get(`${base}/me/sheet`).expect(200);
+    expect(reread.body.data.data).toEqual(sheet);
+    expect(reread.body.data.data.rows[0].cells['column-2']).toBe(42000);
+  });
+
+  it('overwrites the previous grid instead of creating a second sheet', async () => {
+    await authed(memberToken)
+      .put(`${base}/me/sheet`)
+      .send({ columns: [{ id: 'c1', label: 'A' }], rows: [{ id: 'r1', cells: { c1: 'first' } }] })
+      .expect(200);
+    await authed(memberToken)
+      .put(`${base}/me/sheet`)
+      .send({ columns: [{ id: 'c1', label: 'A' }], rows: [{ id: 'r1', cells: { c1: 'second' } }] })
+      .expect(200);
+
+    const reread = await authed(memberToken).get(`${base}/me/sheet`).expect(200);
+    expect(reread.body.data.data.rows[0].cells.c1).toBe('second');
+    expect(await prisma.personalSheet.count({ where: { userId: org.member.id } })).toBe(1);
+  });
+
+  it('keeps a personal sheet private to its owner', async () => {
+    await authed(memberToken)
+      .put(`${base}/me/sheet`)
+      .send({ columns: [{ id: 'c1', label: 'A' }], rows: [{ id: 'r1', cells: { c1: 'my private note' } }] })
+      .expect(200);
+
+    // An admin reading /me/sheet gets their own blank sheet, never the member's.
+    const adminSheet = await authed(adminToken).get(`${base}/me/sheet`).expect(200);
+    expect(JSON.stringify(adminSheet.body)).not.toContain('my private note');
+    expect(adminSheet.body.data.data.rows[0].cells).toEqual({});
+  });
+
+  it('rejects an unauthenticated request for a sheet', async () => {
+    await authed('not-a-token').get(`${base}/me/sheet`).expect(401);
+  });
+
+  it('rejects a malformed grid', async () => {
+    await authed(memberToken).put(`${base}/me/sheet`).send({ columns: [], rows: [] }).expect(400);
+    await authed(memberToken)
+      .put(`${base}/me/sheet`)
+      .send({ columns: [{ id: 'c1', label: 'A' }], rows: [{ id: 'r1', cells: { c1: { nested: true } } }] })
+      .expect(400);
+  });
+
   // --- Personal to-dos ----------------------------------------------------
 
   it('keeps personal to-dos private to the signed-in employee', async () => {

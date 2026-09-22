@@ -127,6 +127,12 @@ export const listFreelancers = asyncHandler(async (req, res) => {
   return sendSuccess(res, items, { pagination });
 });
 
+export const searchFreelancers = asyncHandler(async (req, res) => {
+  const auth = requireAuthContext(req);
+  const { items, pagination } = await freelancerService.searchFreelancers(auth, req.query);
+  return sendSuccess(res, items, { pagination });
+});
+
 export const getFreelancer = asyncHandler(async (req, res) => {
   const auth = requireAuthContext(req);
   return sendSuccess(res, await freelancerService.getFreelancer(auth.organizationId, req.params.id));
@@ -164,6 +170,172 @@ export const freelancerLedger = asyncHandler(async (req, res) => {
   return sendSuccess(
     res,
     await freelancerService.getFreelancerLedger(auth.organizationId, req.params.id),
+  );
+});
+
+export const listFreelancerPlans = asyncHandler(async (req, res) => {
+  const auth = requireAuthContext(req);
+  const { items, pagination } = await freelancerService.listFreelancerPlans(
+    auth.organizationId,
+    req.query,
+  );
+  return sendSuccess(res, items, { pagination });
+});
+
+export const createFreelancerPlan = asyncHandler(async (req, res) => {
+  const auth = requireAuthContext(req);
+  return sendCreated(
+    res,
+    await freelancerService.createFreelancerPlan(auth, req.body, auditContext(req)),
+  );
+});
+
+export const updateFreelancerPlan = asyncHandler(async (req, res) => {
+  const auth = requireAuthContext(req);
+  return sendSuccess(
+    res,
+    await freelancerService.updateFreelancerPlan(auth, req.params.id, req.body, auditContext(req)),
+  );
+});
+
+export const listFreelancerSubscriptions = asyncHandler(async (req, res) => {
+  const auth = requireAuthContext(req);
+  return sendSuccess(
+    res,
+    await freelancerService.listFreelancerSubscriptions(auth.organizationId, req.params.id),
+  );
+});
+
+export const createFreelancerSubscription = asyncHandler(async (req, res) => {
+  const auth = requireAuthContext(req);
+  return sendCreated(
+    res,
+    await freelancerService.createFreelancerSubscription(
+      auth,
+      req.params.id,
+      req.body,
+      auditContext(req),
+    ),
+  );
+});
+
+export const updateFreelancerSubscription = asyncHandler(async (req, res) => {
+  const auth = requireAuthContext(req);
+  return sendSuccess(
+    res,
+    await freelancerService.updateFreelancerSubscription(
+      auth,
+      req.params.id,
+      req.params.subscriptionId,
+      req.body,
+      auditContext(req),
+    ),
+  );
+});
+
+export const listFreelancerAvailability = asyncHandler(async (req, res) => {
+  const auth = requireAuthContext(req);
+  const { items, pagination } = await freelancerService.listAvailability(
+    auth.organizationId,
+    req.params.id,
+    req.query,
+  );
+  return sendSuccess(res, items, { pagination });
+});
+
+export const upsertFreelancerAvailability = asyncHandler(async (req, res) => {
+  const auth = requireAuthContext(req);
+  return sendSuccess(
+    res,
+    await freelancerService.upsertAvailability(auth, req.params.id, req.body, auditContext(req)),
+  );
+});
+
+export const listFreelancerPortfolio = asyncHandler(async (req, res) => {
+  const auth = requireAuthContext(req);
+  return sendSuccess(
+    res,
+    await freelancerService.listPortfolioItems(auth.organizationId, req.params.id),
+  );
+});
+
+export const createFreelancerPortfolioItem = asyncHandler(async (req, res) => {
+  const auth = requireAuthContext(req);
+  return sendCreated(
+    res,
+    await freelancerService.createPortfolioItem(auth, req.params.id, req.body, auditContext(req)),
+  );
+});
+
+export const updateFreelancerPortfolioItem = asyncHandler(async (req, res) => {
+  const auth = requireAuthContext(req);
+  return sendSuccess(
+    res,
+    await freelancerService.updatePortfolioItem(
+      auth,
+      req.params.id,
+      req.params.itemId,
+      req.body,
+      auditContext(req),
+    ),
+  );
+});
+
+export const listFreelancerApplications = asyncHandler(async (req, res) => {
+  const auth = requireAuthContext(req);
+  const { items, pagination } = await freelancerService.listApplications(
+    auth.organizationId,
+    req.query,
+  );
+  return sendSuccess(res, items, { pagination });
+});
+
+export const createFreelancerApplication = asyncHandler(async (req, res) => {
+  const auth = requireAuthContext(req);
+  return sendCreated(
+    res,
+    await freelancerService.createApplication(auth, req.body, auditContext(req)),
+  );
+});
+
+export const reviewFreelancerApplication = asyncHandler(async (req, res) => {
+  const auth = requireAuthContext(req);
+  return sendSuccess(
+    res,
+    await freelancerService.reviewApplication(auth, req.params.id, req.body, auditContext(req)),
+  );
+});
+
+export const listFreelancerConnections = asyncHandler(async (req, res) => {
+  const auth = requireAuthContext(req);
+  const { items, pagination } = await freelancerService.listConnections(
+    auth.organizationId,
+    req.query,
+  );
+  return sendSuccess(res, items, { pagination });
+});
+
+export const createFreelancerConnection = asyncHandler(async (req, res) => {
+  const auth = requireAuthContext(req);
+  return sendCreated(
+    res,
+    await freelancerService.createConnection(auth, req.body, auditContext(req)),
+  );
+});
+
+export const updateFreelancerConnection = asyncHandler(async (req, res) => {
+  const auth = requireAuthContext(req);
+  return sendSuccess(
+    res,
+    await freelancerService.updateConnection(auth, req.params.id, req.body, auditContext(req)),
+  );
+});
+
+export const connectFreelancerConnection = asyncHandler(async (req, res) => {
+  const auth = requireAuthContext(req);
+  return sendSuccess(
+    res,
+    await freelancerService.connectConnection(auth, req.params.id, req.body, auditContext(req)),
   );
 });
 

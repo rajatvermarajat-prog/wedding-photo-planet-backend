@@ -1,4 +1,4 @@
-import { Db, Prisma, prisma } from '../config/prisma';
+import { Db, Prisma } from '../config/prisma';
 import { resolvePagination } from '../utils/pagination';
 import { buildPaginationMeta, PaginationMeta } from '../utils/response';
 import { notFound } from '../utils/errors';

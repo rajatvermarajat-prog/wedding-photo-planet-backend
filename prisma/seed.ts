@@ -161,7 +161,7 @@ async function main(): Promise<void> {
   for (const name of DEPARTMENTS) {
     await prisma.department.upsert({
       where: { organizationId_name: { organizationId: organization.id, name } },
-      create: { id: `lead-source-${name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')}`, organizationId: organization.id, name },
+      create: { organizationId: organization.id, name },
       update: {},
     });
   }
@@ -190,7 +190,6 @@ async function main(): Promise<void> {
     await prisma.leadSource.upsert({
       where: { organizationId_name: { organizationId: organization.id, name } },
       create: {
-        id: `lead-source-${name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')}`,
         organizationId: organization.id,
         name,
       },
@@ -225,21 +224,24 @@ async function main(): Promise<void> {
       email: env.SEED_ADMIN_EMAIL,
       fullName: 'Studio Owner',
       employeeCode: 'EMP-S01',
-      role: 'ADMIN' as const,
+      // Must match SYSTEM_ROLES exactly — that is the key `roleIds` is built
+      // from. Using a different spelling here silently left every seeded
+      // account with no role and therefore no permissions at all.
+      role: 'Admin' as const,
       password: env.SEED_ADMIN_PASSWORD,
     },
     {
       email: `manager@${env.SEED_ORG_SLUG}.test`,
       fullName: 'Studio Manager',
       employeeCode: 'EMP-S02',
-      role: 'MANAGER' as const,
+      role: 'Manager' as const,
       password: env.SEED_ADMIN_PASSWORD,
     },
     {
       email: `member@${env.SEED_ORG_SLUG}.test`,
       fullName: 'Photo Editor',
       employeeCode: 'EMP-S03',
-      role: 'MEMBER' as const,
+      role: 'Photo Editor' as const,
       password: env.SEED_ADMIN_PASSWORD,
     },
   ];
@@ -258,7 +260,13 @@ async function main(): Promise<void> {
     const user = existingUser
       ? await prisma.user.update({
           where: { id: existingUser.id },
-          data: { email },
+          data: {
+            email,
+            passwordHash: await hashPassword(account.password),
+            status: 'ACTIVE',
+            failedLoginAttempts: 0,
+            lockedUntil: null,
+          },
         })
       : await prisma.user.create({
           data: {
@@ -274,14 +282,15 @@ async function main(): Promise<void> {
         });
 
     const roleId = roleIds.get(account.role);
-    if (roleId) {
-      await prisma.userRole.upsert({
-        where: { userId_roleId: { userId: user.id, roleId } },
-        create: { userId: user.id, roleId },
-        update: {},
-      });
-    }
-    console.warn(`  ${account.role.padEnd(7)} ${email}`);
+    // Fail loudly: an account with no role can sign in but sees nothing, which
+    // is far harder to diagnose from the UI than a failed seed.
+    if (!roleId) throw new Error(`Seed role "${account.role}" is not a system role`);
+    await prisma.userRole.upsert({
+      where: { userId_roleId: { userId: user.id, roleId } },
+      create: { userId: user.id, roleId },
+      update: {},
+    });
+    console.warn(`  ${account.role.padEnd(13)} ${email}`);
   }
 
   if (env.SEED_DEMO_DATA && !env.isProduction) {
