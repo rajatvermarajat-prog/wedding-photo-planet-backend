@@ -523,6 +523,7 @@ model Organization {
   personalTodos    PersonalTodo[]
   personalNotes    PersonalNote[]
   personalSheets      PersonalSheet[]
+  personalSheets   PersonalSheet[]
   files            FileObject[]
   notifications    Notification[]
   auditLogs        AuditLog[]
@@ -644,7 +645,7 @@ model User {
   attendancesMarked Attendance[]   @relation("AttendanceMarkedBy")
   personalTodos     PersonalTodo[]
   personalNotes     PersonalNote[]
-  personalSheets      PersonalSheet[]
+  personalSheets    PersonalSheet[]
   leaveRequests     LeaveRequest[] @relation("LeaveRequestUser")
   leaveReviews      LeaveRequest[] @relation("LeaveRequestReviewer")
 

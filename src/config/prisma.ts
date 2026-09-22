@@ -16,7 +16,7 @@ function createPrisma(): PrismaClient {
 }
 
 const cached = globalForPrisma.prisma;
-const stale = Boolean(cached && !(cached as { personalNote?: unknown }).personalNote);
+const stale = Boolean(cached && !(cached as { personalSheet?: unknown }).personalSheet);
 if (stale) {
   void cached?.$disconnect();
   globalForPrisma.prisma = undefined;
