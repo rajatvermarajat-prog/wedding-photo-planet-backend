@@ -11,6 +11,7 @@ import {
   RateType,
 } from '@prisma/client';
 import { prisma } from '../config/prisma';
+import { env } from '../config/env';
 import { andWhere, findScoped, paginate, searchFilter } from '../repositories/base.repository';
 import { resolveSort } from '../utils/pagination';
 import { nextDocumentNumber } from '../utils/documentNumber';
@@ -19,6 +20,7 @@ import { toDateOnly } from '../utils/date';
 import { money, round2, ZERO } from '../utils/money';
 import { AuthContext } from '../types';
 import { AuditRequestContext, recordAudit } from './audit.service';
+import { createOnboardingInvitation } from './freelancerOnboarding.service';
 
 const SORTABLE = ['createdAt', 'fullName', 'rate', 'rating'] as const;
 const PLAN_SORTABLE = ['createdAt', 'name', 'price'] as const;
@@ -30,6 +32,15 @@ const ACTIVE_APPLICATION_STATUSES: FreelancerApplicationStatus[] = [
   'UNDER_REVIEW',
 ];
 const SEARCHABLE_SUBSCRIPTION_STATUSES: FreelancerSubscriptionStatus[] = ['ACTIVE'];
+const ACTIVE_CONNECTION_STATUSES: FreelancerConnectionStatus[] = ['INTERESTED', 'CONTACTED', 'ACCEPTED', 'ASSIGNED'];
+const CONNECTION_TRANSITIONS: Record<FreelancerConnectionStatus, FreelancerConnectionStatus[]> = {
+  INTERESTED: ['CONTACTED', 'ACCEPTED', 'DECLINED', 'EXPIRED', 'ASSIGNED'],
+  CONTACTED: ['ACCEPTED', 'DECLINED', 'EXPIRED', 'ASSIGNED'],
+  ACCEPTED: ['ASSIGNED', 'DECLINED', 'EXPIRED'],
+  DECLINED: [],
+  EXPIRED: [],
+  ASSIGNED: [],
+};
 const SUBSCRIPTION_TRANSITIONS: Record<
   FreelancerSubscriptionStatus,
   FreelancerSubscriptionStatus[]
@@ -448,25 +459,132 @@ export async function isFreelancerSearchable(
   now = new Date(),
 ): Promise<boolean> {
   const freelancer = await prisma.freelancer.findFirst({
-    where: {
-      id: freelancerId,
-      organizationId,
-      deletedAt: null,
-      status: 'ACTIVE',
-      fullName: { not: '' },
-      phone: { not: '' },
-      applications: { some: { status: 'APPROVED' } },
-      subscriptions: {
-        some: {
-          status: { in: SEARCHABLE_SUBSCRIPTION_STATUSES },
-          OR: [{ currentPeriodEnd: null }, { currentPeriodEnd: { gte: now } }],
-          canceledAt: null,
-        },
-      },
-    },
+    where: { id: freelancerId, ...searchableFreelancerWhere(organizationId, now) },
     select: { id: true },
   });
   return Boolean(freelancer);
+}
+
+function searchableFreelancerWhere(organizationId: string, now = new Date()): Prisma.FreelancerWhereInput {
+  return {
+    organizationId,
+    deletedAt: null,
+    status: 'ACTIVE',
+    fullName: { not: '' },
+    phone: { not: '' },
+    applications: { some: { status: 'APPROVED' } },
+    subscriptions: {
+      some: {
+        status: { in: SEARCHABLE_SUBSCRIPTION_STATUSES },
+        OR: [{ currentPeriodEnd: null }, { currentPeriodEnd: { gte: now } }],
+        canceledAt: null,
+      },
+    },
+  };
+}
+
+export async function searchFreelancers(
+  auth: AuthContext,
+  query: {
+    q?: string;
+    location?: string;
+    specialization?: CrewRole;
+    skill?: string;
+    availabilityDate?: string;
+    availabilityStatus?: FreelancerAvailabilityStatus;
+    page?: number;
+    pageSize?: number;
+  },
+) {
+  const page = query.page ?? 1;
+  const limit = query.pageSize ?? 20;
+  const availabilityDate = query.availabilityDate ? toDateOnly(query.availabilityDate) : undefined;
+  const availabilityStatuses: FreelancerAvailabilityStatus[] = query.availabilityStatus
+    ? [query.availabilityStatus]
+    : ['AVAILABLE', 'PARTIALLY_AVAILABLE'];
+  const where = andWhere(
+    searchableFreelancerWhere(auth.organizationId),
+    query.q ? {
+      OR: [
+        { fullName: { contains: query.q, mode: 'insensitive' } },
+        { city: { contains: query.q, mode: 'insensitive' } },
+        { skills: { has: query.q } },
+      ],
+    } : undefined,
+    query.location ? { city: { contains: query.location, mode: 'insensitive' } } : undefined,
+    query.specialization ? { primarySkill: query.specialization } : undefined,
+    query.skill ? { skills: { has: query.skill } } : undefined,
+    availabilityDate ? {
+      availability: {
+        some: {
+          date: availabilityDate,
+          status: { in: availabilityStatuses },
+        },
+      },
+    } : undefined,
+  );
+
+  const [total, rows] = await Promise.all([
+    prisma.freelancer.count({ where }),
+    prisma.freelancer.findMany({
+      where,
+      orderBy: [{ fullName: 'asc' }, { createdAt: 'desc' }],
+      skip: (page - 1) * limit,
+      take: limit,
+      select: {
+        id: true,
+        code: true,
+        fullName: true,
+        city: true,
+        primarySkill: true,
+        skills: true,
+        experienceYears: true,
+        status: true,
+        availability: availabilityDate
+          ? { where: { date: availabilityDate }, select: { id: true, date: true, status: true, startTime: true, endTime: true }, take: 1 }
+          : { orderBy: { date: 'asc' }, where: { date: { gte: new Date() } }, select: { id: true, date: true, status: true, startTime: true, endTime: true }, take: 1 },
+        portfolioItems: {
+          where: { isPublished: true },
+          select: { id: true, title: true, fileObject: { select: { id: true, originalName: true, mimeType: true, sizeBytes: true } } },
+          orderBy: [{ sortOrder: 'asc' }, { createdAt: 'desc' }],
+          take: 3,
+        },
+        connections: {
+          where: { organizationId: auth.organizationId, status: { in: ACTIVE_CONNECTION_STATUSES } },
+          select: { id: true, status: true, projectId: true, shootId: true, createdAt: true },
+          orderBy: { createdAt: 'desc' },
+          take: 1,
+        },
+        _count: { select: { portfolioItems: true } },
+      },
+    }),
+  ]);
+
+  return {
+    items: rows.map((row) => ({
+      id: row.id,
+      code: row.code,
+      displayName: row.fullName,
+      city: row.city,
+      specialization: row.primarySkill,
+      experienceYears: row.experienceYears,
+      skills: row.skills,
+      status: row.status,
+      searchable: true,
+      availability: row.availability[0] ?? null,
+      portfolioPreview: row.portfolioItems,
+      portfolioCount: row._count.portfolioItems,
+      connection: row.connections[0] ?? null,
+    })),
+    pagination: {
+      page,
+      limit,
+      total,
+      totalPages: limit > 0 ? Math.ceil(total / limit) : 0,
+      hasNext: page * limit < total,
+      hasPrev: page > 1,
+    },
+  };
 }
 
 export async function createFreelancerSubscription(
@@ -787,14 +905,49 @@ export async function reviewApplication(
       where: { id, organizationId: auth.organizationId },
     });
     if (!existing) throw notFound('Freelancer application');
+    if (existing.status === 'APPROVED' && input.status === 'APPROVED') {
+      throw conflict('Freelancer application is already approved');
+    }
+    if (existing.status === 'REJECTED' || existing.status === 'WITHDRAWN') {
+      throw conflict('Settled freelancer applications cannot be reviewed again');
+    }
+    let freelancerId = input.freelancerId ?? existing.freelancerId ?? undefined;
     if (input.freelancerId) {
       await findScoped(tx.freelancer, auth.organizationId, input.freelancerId, 'Freelancer');
+    }
+    if (input.status === 'APPROVED' && !freelancerId) {
+      const code = await nextDocumentNumber(tx, auth.organizationId, 'FREELANCER');
+      const freelancer = await tx.freelancer.create({
+        data: {
+          organizationId: auth.organizationId,
+          code,
+          fullName: existing.fullName,
+          phone: existing.phone,
+          whatsapp: existing.whatsapp,
+          email: existing.email?.toLowerCase(),
+          city: existing.city,
+          primarySkill: existing.primarySkill,
+          skills: existing.skills,
+          experienceYears: existing.experienceYears,
+          rate: existing.expectedRate ?? undefined,
+          rateType: existing.rateType,
+          notes: existing.notes,
+        },
+      });
+      freelancerId = freelancer.id;
+      await recordAudit(tx, ctx, {
+        action: 'CREATE',
+        entityType: 'Freelancer',
+        entityId: freelancer.id,
+        summary: `Freelancer ${code} created from approved application`,
+        newData: freelancer,
+      });
     }
     const updated = await tx.freelancerApplication.update({
       where: { id },
       data: {
         status: input.status,
-        freelancerId: input.freelancerId,
+        freelancerId,
         rejectionReason: input.rejectionReason,
         notes: input.notes,
         reviewedById: auth.userId,
@@ -809,7 +962,23 @@ export async function reviewApplication(
       oldData: existing,
       newData: updated,
     });
-    return updated;
+    if (input.status !== 'APPROVED' || !freelancerId) return updated;
+
+    const onboarding = await createOnboardingInvitation(tx, {
+      organizationId: auth.organizationId,
+      freelancerId,
+      applicationId: updated.id,
+      createdById: auth.userId,
+    }, ctx);
+
+    return {
+      ...updated,
+      onboardingInvitation: {
+        id: onboarding.invitation.id,
+        expiresAt: onboarding.invitation.expiresAt,
+        invitationPath: env.isProduction ? undefined : onboarding.invitationPath,
+      },
+    };
   });
 }
 
@@ -859,7 +1028,16 @@ export async function createConnection(
   ctx: AuditRequestContext,
 ) {
   return prisma.$transaction(async (tx) => {
-    await findScoped(tx.freelancer, auth.organizationId, input.freelancerId, 'Freelancer');
+    const freelancer = await findScoped<{ id: string; fullName: string; maxShootsPerDay: number }>(
+      tx.freelancer,
+      auth.organizationId,
+      input.freelancerId,
+      'Freelancer',
+      { select: { id: true, fullName: true, maxShootsPerDay: true } },
+    );
+    if (!(await isFreelancerSearchable(auth.organizationId, input.freelancerId))) {
+      throw conflict('This freelancer is not currently searchable');
+    }
     if (input.projectId) await findScoped(tx.project, auth.organizationId, input.projectId, 'Project');
     if (input.shootId) {
       const shoot = await findScoped<{ id: string; projectId: string }>(
@@ -873,6 +1051,17 @@ export async function createConnection(
         throw conflict('Shoot does not belong to the selected project');
       }
     }
+    const duplicate = await tx.freelancerConnection.findFirst({
+      where: {
+        organizationId: auth.organizationId,
+        freelancerId: input.freelancerId,
+        projectId: input.projectId ?? null,
+        shootId: input.shootId ?? null,
+        status: { in: ACTIVE_CONNECTION_STATUSES },
+      },
+      select: { id: true },
+    });
+    if (duplicate) throw conflict('An active freelancer connection already exists for this context');
 
     const connection = await tx.freelancerConnection.create({
       data: {
@@ -886,7 +1075,7 @@ export async function createConnection(
       action: 'CREATE',
       entityType: 'FreelancerConnection',
       entityId: connection.id,
-      summary: `Freelancer connection marked ${connection.status}`,
+      summary: `${freelancer.fullName} marked ${connection.status}`,
       newData: connection,
     });
     return connection;
@@ -907,6 +1096,13 @@ export async function updateConnection(
       where: { id, organizationId: auth.organizationId },
     });
     if (!existing) throw notFound('Freelancer connection');
+    if (
+      input.status &&
+      input.status !== existing.status &&
+      !CONNECTION_TRANSITIONS[existing.status].includes(input.status)
+    ) {
+      throw conflict(`Cannot change connection from ${existing.status} to ${input.status}`);
+    }
     const updated = await tx.freelancerConnection.update({ where: { id }, data: input });
     await recordAudit(tx, ctx, {
       action: 'UPDATE',
@@ -917,5 +1113,107 @@ export async function updateConnection(
       newData: updated,
     });
     return updated;
+  });
+}
+
+export async function connectConnection(
+  auth: AuthContext,
+  id: string,
+  input: {
+    projectId: string;
+    shootId?: string;
+    role?: CrewRole;
+    notes?: string;
+  },
+  ctx: AuditRequestContext,
+) {
+  return prisma.$transaction(async (tx) => {
+    const existing = await tx.freelancerConnection.findFirst({
+      where: { id, organizationId: auth.organizationId },
+      include: { freelancer: { select: { id: true, fullName: true, primarySkill: true, maxShootsPerDay: true } } },
+    });
+    if (!existing) throw notFound('Freelancer connection');
+    if (!(await isFreelancerSearchable(auth.organizationId, existing.freelancerId))) {
+      throw conflict('This freelancer is not currently searchable');
+    }
+    const project = await findScoped<{ id: string; name: string }>(
+      tx.project,
+      auth.organizationId,
+      input.projectId,
+      'Project',
+      { select: { id: true, name: true } },
+    );
+
+    let assignment: unknown = null;
+    let nextStatus: FreelancerConnectionStatus = 'ACCEPTED';
+    if (input.shootId) {
+      const shoot = await findScoped<{ id: string; title: string; projectId: string; shootDate: Date }>(
+        tx.shoot,
+        auth.organizationId,
+        input.shootId,
+        'Shoot',
+        { select: { id: true, title: true, projectId: true, shootDate: true } },
+      );
+      if (shoot.projectId !== project.id) throw conflict('Shoot does not belong to the selected project');
+      const sameDay = await tx.shootAssignment.count({
+        where: {
+          freelancerId: existing.freelancerId,
+          status: { notIn: ['DECLINED', 'CANCELLED'] },
+          shoot: { shootDate: shoot.shootDate, deletedAt: null },
+        },
+      });
+      if (sameDay >= existing.freelancer.maxShootsPerDay) {
+        throw conflict(`This freelancer is already booked for ${sameDay} shoot(s) on that date`);
+      }
+      const duplicateAssignment = await tx.shootAssignment.findFirst({
+        where: { shootId: shoot.id, freelancerId: existing.freelancerId },
+        select: { id: true },
+      });
+      if (duplicateAssignment) throw conflict('This freelancer is already assigned to this shoot');
+      assignment = await tx.shootAssignment.create({
+        data: {
+          shootId: shoot.id,
+          freelancerId: existing.freelancerId,
+          role: input.role ?? existing.freelancer.primarySkill ?? 'OTHER',
+          assignedById: auth.userId,
+          notes: input.notes,
+        },
+        include: { freelancer: { select: { id: true, fullName: true, code: true } } },
+      });
+      nextStatus = 'ASSIGNED';
+    }
+
+    const updated = await tx.freelancerConnection.update({
+      where: { id },
+      data: {
+        projectId: project.id,
+        shootId: input.shootId ?? null,
+        status: nextStatus,
+        notes: input.notes ?? existing.notes,
+      },
+      include: {
+        freelancer: { select: { id: true, code: true, fullName: true, primarySkill: true, city: true } },
+        project: { select: { id: true, projectNumber: true, name: true } },
+        shoot: { select: { id: true, title: true, shootDate: true } },
+      },
+    });
+    if (assignment && typeof assignment === 'object' && 'id' in assignment) {
+      await recordAudit(tx, ctx, {
+        action: 'ASSIGN',
+        entityType: 'ShootAssignment',
+        entityId: (assignment as { id: string }).id,
+        summary: `Freelancer assigned through marketplace connection`,
+        newData: assignment,
+      });
+    }
+    await recordAudit(tx, ctx, {
+      action: 'UPDATE',
+      entityType: 'FreelancerConnection',
+      entityId: id,
+      summary: `Freelancer connected to project ${project.name}`,
+      oldData: existing,
+      newData: updated,
+    });
+    return { connection: updated, assignment };
   });
 }

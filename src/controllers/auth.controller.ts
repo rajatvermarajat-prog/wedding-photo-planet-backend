@@ -6,18 +6,41 @@ import { sendSuccess } from '../utils/response';
 import { unauthenticated } from '../utils/errors';
 import * as authService from '../services/auth.service';
 
-const cookieOptions = (maxAgeSeconds: number) => ({
+/**
+ * Shared cookie attributes. A deletion cookie is only honoured by browsers when
+ * every attribute except `Max-Age`/`Expires` matches the cookie that was set —
+ * in particular `Secure` and `SameSite=None`, which are mandatory together.
+ * Clearing with bare `{ path: '/' }` silently left the cookie in place in
+ * production, so the base attributes live in one place and both paths use it.
+ */
+const cookieBase = () => ({
   httpOnly: true,
   secure: env.COOKIE_SECURE,
   sameSite: env.COOKIE_SECURE ? ('none' as const) : ('lax' as const),
   path: '/',
-  maxAge: maxAgeSeconds * 1000,
   ...(env.COOKIE_DOMAIN ? { domain: env.COOKIE_DOMAIN } : {}),
+});
+
+const cookieOptions = (maxAgeSeconds: number) => ({
+  ...cookieBase(),
+  maxAge: maxAgeSeconds * 1000,
 });
 
 function setAuthCookies(res: Response, tokens: authService.AuthTokens): void {
   res.cookie(ACCESS_COOKIE, tokens.accessToken, cookieOptions(tokens.accessTokenExpiresIn));
   res.cookie(REFRESH_COOKIE, tokens.refreshToken, cookieOptions(tokens.refreshTokenExpiresIn));
+}
+
+/**
+ * Drops both auth cookies. Called on logout, on password change and — crucially
+ * — whenever a refresh is rejected: the refresh token is the last credential the
+ * browser holds, so once it is dead the cookies must go, otherwise the edge
+ * middleware keeps seeing an "authenticated" browser, keeps admitting it to a
+ * protected route, and the app keeps retrying /me and /refresh.
+ */
+function clearAuthCookies(res: Response): void {
+  res.clearCookie(ACCESS_COOKIE, cookieBase());
+  res.clearCookie(REFRESH_COOKIE, cookieBase());
 }
 
 const requestMeta = (req: Request) => ({
@@ -37,18 +60,29 @@ export const refresh = asyncHandler(async (req, res) => {
   const token =
     (req.body?.refreshToken as string | undefined) ??
     (req.cookies as Record<string, string> | undefined)?.[REFRESH_COOKIE];
-  if (!token) throw unauthenticated('No refresh token supplied');
+  if (!token) {
+    clearAuthCookies(res);
+    throw unauthenticated('No refresh token supplied');
+  }
 
-  const { user, tokens } = await authService.refresh(token, requestMeta(req));
-  setAuthCookies(res, tokens);
-  return sendSuccess(res, { user, tokens });
+  let result: Awaited<ReturnType<typeof authService.refresh>>;
+  try {
+    result = await authService.refresh(token, requestMeta(req));
+  } catch (error) {
+    // The presented token is unusable and rotation retired nothing the browser
+    // can still use. Clearing here is what makes a dead session terminal
+    // instead of an endless /me -> /refresh retry cycle.
+    clearAuthCookies(res);
+    throw error;
+  }
+  setAuthCookies(res, result.tokens);
+  return sendSuccess(res, { user: result.user, tokens: result.tokens });
 });
 
 export const logout = asyncHandler(async (req, res) => {
   const auth = requireAuthContext(req);
   await authService.logout(auth.sessionId, requestMeta(req));
-  res.clearCookie(ACCESS_COOKIE, { path: '/' });
-  res.clearCookie(REFRESH_COOKIE, { path: '/' });
+  clearAuthCookies(res);
   return sendSuccess(res, { loggedOut: true });
 });
 
@@ -67,8 +101,7 @@ export const sessions = asyncHandler(async (req, res) => {
 export const revokeSessions = asyncHandler(async (req, res) => {
   const auth = requireAuthContext(req);
   const revoked = await authService.revokeAllSessions(auth.userId, 'ADMIN_REVOKED');
-  res.clearCookie(ACCESS_COOKIE, { path: '/' });
-  res.clearCookie(REFRESH_COOKIE, { path: '/' });
+  clearAuthCookies(res);
   return sendSuccess(res, { revoked });
 });
 
@@ -80,8 +113,7 @@ export const changePassword = asyncHandler(async (req, res) => {
     req.body.newPassword,
     requestMeta(req),
   );
-  res.clearCookie(ACCESS_COOKIE, { path: '/' });
-  res.clearCookie(REFRESH_COOKIE, { path: '/' });
+  clearAuthCookies(res);
   void auditContext(req);
   return sendSuccess(res, { passwordChanged: true });
 });

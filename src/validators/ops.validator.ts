@@ -119,6 +119,26 @@ export const reorderPersonalNotesSchema = z.object({
   ids: z.array(uuid).min(1).max(100),
 });
 
+// --- Personal sheet -------------------------------------------------------
+
+/**
+ * The grid is free-form, so the bounds exist to cap what one user can store
+ * rather than to describe a fixed shape. Cell keys are column ids, so they are
+ * not enumerated here.
+ */
+const sheetCellValue = z.union([z.string().max(2000), z.number().finite()]);
+
+export const personalSheetSchema = z.object({
+  columns: z
+    .array(z.object({ id: z.string().min(1).max(80), label: z.string().max(120) }))
+    .min(1)
+    .max(50),
+  rows: z
+    .array(z.object({ id: z.string().min(1).max(80), cells: z.record(sheetCellValue) }))
+    .min(1)
+    .max(2000),
+});
+
 // --- Deliveries -----------------------------------------------------------
 
 export const DELIVERY_STATUS = z.enum([
@@ -221,6 +241,17 @@ export const freelancerListQuery = listQuery.extend({
   status: FREELANCER_STATUS.optional(),
   primarySkill: CREW_ROLE.optional(),
   city: z.string().max(80).optional(),
+});
+
+export const freelancerSearchQuery = z.object({
+  q: z.string().trim().max(160).optional(),
+  location: z.string().trim().max(80).optional(),
+  specialization: CREW_ROLE.optional(),
+  skill: z.string().trim().max(60).optional(),
+  availabilityDate: dateOnly.optional(),
+  availabilityStatus: FREELANCER_AVAILABILITY_STATUS.optional(),
+  page: z.coerce.number().int().min(1).optional(),
+  pageSize: z.coerce.number().int().min(1).max(50).optional(),
 });
 
 export const createFreelancerSchema = z.object({
@@ -376,6 +407,13 @@ export const createFreelancerConnectionSchema = z.object({
 export const updateFreelancerConnectionSchema = z.object({
   status: FREELANCER_CONNECTION_STATUS.optional(),
   notes: z.string().max(5000).optional().nullable(),
+});
+
+export const connectFreelancerConnectionSchema = z.object({
+  projectId: uuid,
+  shootId: uuid.optional(),
+  role: CREW_ROLE.optional(),
+  notes: z.string().max(5000).optional(),
 });
 
 export const freelancerSubscriptionParams = z.object({

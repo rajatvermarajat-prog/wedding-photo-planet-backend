@@ -51,6 +51,7 @@ const schema = z.object({
     .string()
     .min(32, 'REFRESH_TOKEN_SECRET must be at least 32 characters'),
   REFRESH_TOKEN_EXPIRES_IN: z.string().default('7d'),
+  FREELANCER_ONBOARDING_TOKEN_EXPIRES_IN: z.string().default('48h'),
   COOKIE_SECURE: bool(onVercel || process.env.NODE_ENV === 'production' ? 'true' : 'false'),
   COOKIE_DOMAIN: z.string().optional(),
 

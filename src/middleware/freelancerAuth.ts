@@ -8,8 +8,6 @@ export const FREELANCER_ACCESS_COOKIE = 'wpp_freelancer_access_token';
 export const FREELANCER_REFRESH_COOKIE = 'wpp_freelancer_refresh_token';
 
 function extractToken(req: Request): string | null {
-  const header = req.header('authorization');
-  if (header?.startsWith('Bearer ')) return header.slice(7).trim();
   return (req.cookies as Record<string, string> | undefined)?.[FREELANCER_ACCESS_COOKIE] ?? null;
 }
 

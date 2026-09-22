@@ -6,6 +6,7 @@ import * as freelancerService from '../services/freelancer.service';
 import * as attendanceService from '../services/attendance.service';
 import * as personalTodoService from '../services/personalTodo.service';
 import * as personalNoteService from '../services/personalNote.service';
+import * as personalSheetService from '../services/personalSheet.service';
 import { forbidden } from '../utils/errors';
 import { createPerformanceReportPdf } from '../utils/performance-report-pdf';
 
@@ -123,6 +124,12 @@ export const listFreelancers = asyncHandler(async (req, res) => {
     auth.organizationId,
     req.query,
   );
+  return sendSuccess(res, items, { pagination });
+});
+
+export const searchFreelancers = asyncHandler(async (req, res) => {
+  const auth = requireAuthContext(req);
+  const { items, pagination } = await freelancerService.searchFreelancers(auth, req.query);
   return sendSuccess(res, items, { pagination });
 });
 
@@ -324,6 +331,14 @@ export const updateFreelancerConnection = asyncHandler(async (req, res) => {
   );
 });
 
+export const connectFreelancerConnection = asyncHandler(async (req, res) => {
+  const auth = requireAuthContext(req);
+  return sendSuccess(
+    res,
+    await freelancerService.connectConnection(auth, req.params.id, req.body, auditContext(req)),
+  );
+});
+
 // --- Attendance & leave ---------------------------------------------------
 
 export const listAttendance = asyncHandler(async (req, res) => {
@@ -507,4 +522,14 @@ export const removePersonalNote = asyncHandler(async (req, res) => {
   const auth = requireAuthContext(req);
   await personalNoteService.deletePersonalNote(auth, req.params.id);
   return sendNoContent(res);
+});
+
+export const getPersonalSheet = asyncHandler(async (req, res) => {
+  const auth = requireAuthContext(req);
+  return sendSuccess(res, await personalSheetService.getPersonalSheet(auth));
+});
+
+export const savePersonalSheet = asyncHandler(async (req, res) => {
+  const auth = requireAuthContext(req);
+  return sendSuccess(res, await personalSheetService.savePersonalSheet(auth, req.body));
 });

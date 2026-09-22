@@ -10,6 +10,7 @@ import {
   createDeliverySchema,
   createFreelancerApplicationSchema,
   createFreelancerConnectionSchema,
+  connectFreelancerConnectionSchema,
   createFreelancerSchema,
   createFreelancerPlanSchema,
   createFreelancerSubscriptionSchema,
@@ -21,6 +22,7 @@ import {
   freelancerApplicationListQuery,
   freelancerConnectionListQuery,
   freelancerListQuery,
+  freelancerSearchQuery,
   freelancerPlanListQuery,
   freelancerPortfolioItemParams,
   freelancerPayoutSchema,
@@ -34,6 +36,7 @@ import {
   createPersonalNoteSchema,
   updatePersonalNoteSchema,
   reorderPersonalNotesSchema,
+  personalSheetSchema,
   reassignTaskSchema,
   requestLeaveSchema,
   reviewLeaveSchema,
@@ -189,6 +192,18 @@ freelancerRouter.patch(
   requirePermission('FREELANCER_CONNECTION_MANAGE'),
   validate({ params: idParam, body: updateFreelancerConnectionSchema }),
   controller.updateFreelancerConnection,
+);
+freelancerRouter.post(
+  '/connections/:id/connect',
+  requirePermission('FREELANCER_CONNECTION_MANAGE', 'SHOOT_ASSIGN'),
+  validate({ params: idParam, body: connectFreelancerConnectionSchema }),
+  controller.connectFreelancerConnection,
+);
+freelancerRouter.get(
+  '/search',
+  requirePermission('FREELANCER_VIEW'),
+  validate({ query: freelancerSearchQuery }),
+  controller.searchFreelancers,
 );
 freelancerRouter.get(
   '/',
@@ -369,4 +384,15 @@ personalNoteRouter.delete(
   '/:id',
   validate({ params: idParam }),
   controller.removePersonalNote,
+);
+
+// A user's own private scratch spreadsheet. Like notes and todos, it is scoped
+// to the caller and needs no permission beyond an authenticated session.
+export const personalSheetRouter = Router();
+
+personalSheetRouter.get('/', controller.getPersonalSheet);
+personalSheetRouter.put(
+  '/',
+  validate({ body: personalSheetSchema }),
+  controller.savePersonalSheet,
 );

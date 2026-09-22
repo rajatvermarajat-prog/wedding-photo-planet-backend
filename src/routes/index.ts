@@ -7,7 +7,7 @@ import { dashboardRouter } from './dashboard.routes';
 import { settingsWorkspaceRouter } from './settings.routes';
 import { eventRouter, projectRouter, shootRouter } from './project.routes';
 import { expenseRouter, financeRouter, incomeRouter, invoiceRouter, paymentRouter, quotationRouter } from './finance.routes';
-import { attendanceRouter, deliveryRouter, freelancerRouter, personalNoteRouter, personalTodoRouter, taskRouter } from './ops.routes';
+import { attendanceRouter, deliveryRouter, freelancerRouter, personalNoteRouter, personalSheetRouter, personalTodoRouter, taskRouter } from './ops.routes';
 import {
   auditRouter,
   branchRouter,
@@ -51,6 +51,7 @@ router.use('/freelancers', freelancerRouter);
 router.use('/tasks', taskRouter);
 router.use('/me/todos', personalTodoRouter);
 router.use('/me/notes', personalNoteRouter);
+router.use('/me/sheet', personalSheetRouter);
 router.use('/attendance', attendanceRouter);
 router.use('/deliveries', deliveryRouter);
 

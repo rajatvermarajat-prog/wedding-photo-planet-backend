@@ -124,6 +124,117 @@ describe('authentication', () => {
     expect(response.status).toBe(403);
   });
 
+  // --- Cookie session ----------------------------------------------------
+  // The browser never sends an Authorization header on a cold start; it relies
+  // entirely on the httpOnly cookies set by /auth/login.
+
+  const setCookies = (response: { headers: Record<string, unknown> }): string[] => {
+    const raw = response.headers['set-cookie'];
+    return Array.isArray(raw) ? raw : raw ? [String(raw)] : [];
+  };
+  const cookieHeader = (cookies: string[]) => cookies.map((c) => c.split(';')[0]).join('; ');
+  const cookieFor = (cookies: string[], name: string) =>
+    cookies.find((c) => c.startsWith(`${name}=`));
+
+  it('sets httpOnly access and refresh cookies on login', async () => {
+    const response = await api()
+      .post(`${base}/auth/login`)
+      .send({ email: org.admin.email, password: org.admin.password });
+
+    const cookies = setCookies(response);
+    const access = cookieFor(cookies, 'wpp_access_token');
+    const refresh = cookieFor(cookies, 'wpp_refresh_token');
+
+    expect(access).toBeDefined();
+    expect(refresh).toBeDefined();
+    expect(access).toMatch(/HttpOnly/i);
+    expect(refresh).toMatch(/HttpOnly/i);
+    expect(access).toMatch(/Path=\//);
+    expect(refresh).toMatch(/Path=\//);
+    // A hardcoded Domain would break every deployment but the one it names.
+    expect(access).not.toMatch(/Domain=/i);
+  });
+
+  it('authenticates /auth/me from the cookie alone', async () => {
+    const loginResponse = await api()
+      .post(`${base}/auth/login`)
+      .send({ email: org.admin.email, password: org.admin.password });
+
+    const response = await api()
+      .get(`${base}/auth/me`)
+      .set('Cookie', cookieHeader(setCookies(loginResponse)));
+
+    expect(response.status).toBe(200);
+    expect(response.body.data.email).toBe(org.admin.email);
+  });
+
+  it('refreshes from the cookie alone, with no refreshToken in the body', async () => {
+    const loginResponse = await api()
+      .post(`${base}/auth/login`)
+      .send({ email: org.admin.email, password: org.admin.password });
+
+    const refreshed = await api()
+      .post(`${base}/auth/refresh`)
+      .set('Cookie', cookieHeader(setCookies(loginResponse)))
+      .send({});
+
+    expect(refreshed.status).toBe(200);
+    const rotated = setCookies(refreshed);
+    expect(cookieFor(rotated, 'wpp_refresh_token')).toBeDefined();
+
+    const me = await api().get(`${base}/auth/me`).set('Cookie', cookieHeader(rotated));
+    expect(me.status).toBe(200);
+  });
+
+  it('clears both auth cookies when a refresh is rejected', async () => {
+    // Without this, the edge middleware keeps seeing an authenticated browser
+    // and the app retries /me -> /refresh indefinitely.
+    const rejected = await api()
+      .post(`${base}/auth/refresh`)
+      .set('Cookie', 'wpp_access_token=stale; wpp_refresh_token=not-a-real-token')
+      .send({});
+
+    expect(rejected.status).toBe(401);
+    const cleared = setCookies(rejected);
+    expect(cookieFor(cleared, 'wpp_access_token')).toMatch(/wpp_access_token=;/);
+    expect(cookieFor(cleared, 'wpp_refresh_token')).toMatch(/wpp_refresh_token=;/);
+  });
+
+  it('clears both auth cookies when no refresh token is supplied', async () => {
+    const response = await api().post(`${base}/auth/refresh`).send({});
+
+    expect(response.status).toBe(401);
+    expect(setCookies(response)).toHaveLength(2);
+  });
+
+  it('clears the auth cookies on logout and stops accepting them', async () => {
+    const loginResponse = await api()
+      .post(`${base}/auth/login`)
+      .send({ email: org.admin.email, password: org.admin.password });
+    const cookies = cookieHeader(setCookies(loginResponse));
+
+    const logout = await api().post(`${base}/auth/logout`).set('Cookie', cookies);
+    expect(logout.status).toBe(200);
+    expect(cookieFor(setCookies(logout), 'wpp_access_token')).toMatch(/wpp_access_token=;/);
+
+    // Even if the browser ignored the deletion, the session is dead server-side.
+    const after = await api().get(`${base}/auth/me`).set('Cookie', cookies);
+    expect(after.status).toBe(401);
+  });
+
+  it('does not leak the refresh token into the /auth/me payload', async () => {
+    const loginResponse = await api()
+      .post(`${base}/auth/login`)
+      .send({ email: org.admin.email, password: org.admin.password });
+    const refreshToken = loginResponse.body.data.tokens.refreshToken as string;
+
+    const me = await api()
+      .get(`${base}/auth/me`)
+      .set('Cookie', cookieHeader(setCookies(loginResponse)));
+
+    expect(JSON.stringify(me.body)).not.toContain(refreshToken);
+  });
+
   it('writes an audit row for a successful sign-in', async () => {
     await login(org.admin);
     const audit = await prisma.auditLog.findFirst({

@@ -1,19 +1,16 @@
 import { z } from 'zod';
-import { dateOnly, email, nonNegativeDecimal, password, phone, uuid, isoDateTime } from './common.validator';
+import { dateOnly, email, nonNegativeDecimal, password, phone, uuid, isoDateTime, listQuery } from './common.validator';
 import { CREW_ROLE } from './project.validator';
-import { FREELANCER_AVAILABILITY_STATUS, RATE_TYPE } from './ops.validator';
+import { FREELANCER_AVAILABILITY_STATUS, RATE_TYPE, TASK_STATUS } from './ops.validator';
 
 export const freelancerPortalLoginSchema = z.object({
   identifier: z.string().trim().min(1).max(160),
   password,
 });
 
-export const freelancerPortalRefreshSchema = z.object({
-  refreshToken: z.string().optional(),
-});
+export const freelancerPortalRefreshSchema = z.object({});
 
 export const publicFreelancerApplicationSchema = z.object({
-  organizationSlug: z.string().trim().max(80).optional(),
   fullName: z.string().trim().min(1).max(160),
   phone,
   email: email.optional(),
@@ -47,6 +44,18 @@ export const setFreelancerPasswordSchema = z.object({
   password,
 });
 
+export const onboardingTokenParam = z.object({
+  token: z.string().trim().min(32).max(512),
+});
+
+export const onboardingPasswordSchema = z.object({
+  password,
+  confirmPassword: z.string().optional(),
+}).refine((v) => v.confirmPassword === undefined || v.confirmPassword === v.password, {
+  message: 'Passwords do not match',
+  path: ['confirmPassword'],
+});
+
 export const portalAvailabilitySchema = z.object({
   date: dateOnly,
   status: FREELANCER_AVAILABILITY_STATUS,
@@ -72,3 +81,27 @@ export const portalPortfolioUpdateSchema = portalPortfolioCreateSchema
   .omit({ fileObjectId: true });
 
 export const itemIdParam = z.object({ itemId: uuid });
+
+export const portalResourceIdParam = z.object({ id: uuid });
+
+export const portalProjectListQuery = listQuery.extend({
+  status: z.enum(['LEAD', 'UPCOMING', 'IN_PROGRESS', 'COMPLETED', 'CANCELLED', 'ARCHIVED']).optional(),
+});
+
+export const portalShootListQuery = listQuery.extend({
+  view: z.enum(['upcoming', 'today', 'completed', 'all']).default('upcoming'),
+});
+
+export const portalTaskListQuery = listQuery.extend({
+  status: TASK_STATUS.optional(),
+});
+
+export const portalPaymentListQuery = listQuery;
+
+export const portalNotificationListQuery = listQuery.extend({
+  unreadOnly: z.enum(['true', 'false']).transform((v) => v === 'true').optional(),
+});
+
+export const portalTaskStatusUpdateSchema = z.object({
+  status: TASK_STATUS,
+});
