@@ -707,7 +707,7 @@ export async function createProject(
     });
 
     return createdProject;
-  }, { timeout: 15_000, maxWait: 10_000 });
+  }, { timeout: 60_000, maxWait: 20_000 });
 }
 
 export async function updateProject(
