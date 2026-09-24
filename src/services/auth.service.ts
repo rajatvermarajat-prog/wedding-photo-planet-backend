@@ -1,6 +1,7 @@
 import { LoginOutcome, LogoutReason, SessionStatus } from '@prisma/client';
 import { prisma } from '../config/prisma';
 import { env } from '../config/env';
+import { logger } from '../config/logger';
 import { hashPassword, verifyPassword } from '../utils/password';
 import {
   generateRefreshToken,
@@ -197,11 +198,11 @@ export async function login(
     throw forbidden(`Account is ${user.status.toLowerCase()}`);
   }
 
-  // Only the session issue gates the response; the counter reset, the login
-  // history row and the audit entry are independent bookkeeping, so they run
-  // concurrently instead of adding three sequential round trips to every login.
-  const [tokens] = await Promise.all([
-    issueSession(user.id, user.organizationId, meta),
+  // Only session creation gates the response; these writes are bookkeeping and
+  // can finish just after the browser receives its authenticated session.
+  const tokens = await issueSession(user.id, user.organizationId, meta);
+
+  void Promise.all([
     prisma.user.update({
       where: { id: user.id },
       data: { failedLoginAttempts: 0, lockedUntil: null, lastLoginAt: new Date() },
@@ -218,7 +219,7 @@ export async function login(
       },
       { action: 'LOGIN', entityType: 'User', entityId: user.id, summary: 'User signed in' },
     ),
-  ]);
+  ]).catch((err) => logger.warn({ err, userId: user.id }, 'post-login bookkeeping failed'));
 
   return { user: toSessionUser(user), tokens };
 }
