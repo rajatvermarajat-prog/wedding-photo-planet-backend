@@ -459,36 +459,34 @@ export async function deletePaymentMilestone(
   legacyMilestones: Array<{ id: string; stageName: string; dueDate?: string; amount: number; status?: string; notes?: string }> = [],
   ctx: AuditRequestContext,
 ) {
-  return prisma.$transaction(async (tx) => {
-    const project = await tx.project.findFirst({ where: scopedProjectWhere(auth, { id: projectId }), select: { id: true } });
-    if (!project) throw notFound('Project');
-    const milestone = await tx.paymentMilestone.findFirst({
-      where: { id: milestoneId, projectId, organizationId: auth.organizationId },
-      select: { id: true, title: true, projectId: true },
+  const project = await prisma.project.findFirst({ where: scopedProjectWhere(auth, { id: projectId }), select: { id: true } });
+  if (!project) throw notFound('Project');
+  const milestone = await prisma.paymentMilestone.findFirst({
+    where: { id: milestoneId, projectId, organizationId: auth.organizationId },
+    select: { id: true, title: true, projectId: true },
+  });
+  // Existing UI schedules used `sched-*` IDs before milestones had a table.
+  // Persist every remaining legacy item, deliberately excluding the requested
+  // item; after this first delete the DB is authoritative.
+  if (!milestone && legacyMilestones.length > 0) {
+    await prisma.paymentMilestone.createMany({
+      data: legacyMilestones
+        .filter((item) => item.id !== milestoneId)
+        .map((item) => ({
+          id: item.id, organizationId: auth.organizationId, projectId,
+          title: item.stageName, amount: item.amount,
+          dueDate: item.dueDate && !Number.isNaN(Date.parse(item.dueDate)) ? new Date(item.dueDate) : null,
+          status: item.status?.toUpperCase() || 'PENDING', notes: item.notes,
+        })),
+      skipDuplicates: true,
     });
-    // Existing UI schedules used `sched-*` IDs before milestones had a table.
-    // Persist every remaining legacy item atomically, deliberately excluding
-    // the requested item; after this first delete the DB is authoritative.
-    if (!milestone && legacyMilestones.length > 0) {
-      await tx.paymentMilestone.createMany({
-        data: legacyMilestones
-          .filter((item) => item.id !== milestoneId)
-          .map((item) => ({
-            id: item.id, organizationId: auth.organizationId, projectId,
-            title: item.stageName, amount: item.amount,
-            dueDate: item.dueDate && !Number.isNaN(Date.parse(item.dueDate)) ? new Date(item.dueDate) : null,
-            status: item.status?.toUpperCase() || 'PENDING', notes: item.notes,
-          })),
-        skipDuplicates: true,
-      });
-      return;
-    }
-    if (!milestone) throw notFound('Payment milestone');
-    await tx.paymentMilestone.delete({ where: { id: milestone.id } });
-    await recordAudit(tx, ctx, {
-      action: 'DELETE', entityType: 'PaymentMilestone', entityId: milestone.id,
-      summary: `Payment milestone ${milestone.title} deleted`, oldData: milestone,
-    });
+    return;
+  }
+  if (!milestone) throw notFound('Payment milestone');
+  await prisma.paymentMilestone.delete({ where: { id: milestone.id } });
+  await recordAudit(prisma, ctx, {
+    action: 'DELETE', entityType: 'PaymentMilestone', entityId: milestone.id,
+    summary: `Payment milestone ${milestone.title} deleted`, oldData: milestone,
   });
 }
 
@@ -508,44 +506,63 @@ export interface PaymentMilestoneInput {
   notes?: string;
 }
 
+async function assertMilestonesWithinProjectTotal(
+  auth: AuthContext,
+  projectId: string,
+  nextAmount: string,
+  replacingMilestoneId?: string,
+) {
+  const project = await prisma.project.findFirst({
+    where: scopedProjectWhere(auth, { id: projectId }),
+    select: { id: true, totalQuotation: true },
+  });
+  if (!project) throw notFound('Project');
+  const existing = await prisma.paymentMilestone.aggregate({
+    where: {
+      organizationId: auth.organizationId,
+      projectId,
+      ...(replacingMilestoneId ? { id: { not: replacingMilestoneId } } : {}),
+    },
+    _sum: { amount: true },
+  });
+  const scheduledTotal = Number(existing._sum.amount ?? 0) + Number(nextAmount || 0);
+  if (scheduledTotal > Number(project.totalQuotation || 0)) {
+    throw badRequest('Scheduled payment milestones cannot exceed the project total.');
+  }
+}
+
 export async function createPaymentMilestone(
   auth: AuthContext, projectId: string, input: PaymentMilestoneInput, ctx: AuditRequestContext,
 ) {
-  return prisma.$transaction(async (tx) => {
-    if (!auth.permissions.has('PAYMENT_MILESTONE_MANAGE')) throw forbidden('PAYMENT_MILESTONE_MANAGE permission is required.');
-    const project = await tx.project.findFirst({ where: scopedProjectWhere(auth, { id: projectId }), select: { id: true } });
-    if (!project) throw notFound('Project');
-    const { percentage: _percentage, ...milestoneData } = input;
-    const milestone = await tx.paymentMilestone.create({
-      data: { organizationId: auth.organizationId, projectId, ...milestoneData },
-    });
-    await recordAudit(tx, ctx, {
-      action: 'CREATE', entityType: 'PaymentMilestone', entityId: milestone.id,
-      summary: `Payment milestone ${milestone.title} created`, newData: milestone,
-    });
-    return milestone;
+  if (!auth.permissions.has('PAYMENT_MILESTONE_MANAGE')) throw forbidden('PAYMENT_MILESTONE_MANAGE permission is required.');
+  await assertMilestonesWithinProjectTotal(auth, projectId, input.amount);
+  const { percentage: _percentage, ...milestoneData } = input;
+  const milestone = await prisma.paymentMilestone.create({
+    data: { organizationId: auth.organizationId, projectId, ...milestoneData },
   });
+  await recordAudit(prisma, ctx, {
+    action: 'CREATE', entityType: 'PaymentMilestone', entityId: milestone.id,
+    summary: `Payment milestone ${milestone.title} created`, newData: milestone,
+  });
+  return milestone;
 }
 
 export async function updatePaymentMilestone(
   auth: AuthContext, projectId: string, milestoneId: string, input: PaymentMilestoneInput, ctx: AuditRequestContext,
 ) {
-  return prisma.$transaction(async (tx) => {
-    if (!auth.permissions.has('PAYMENT_MILESTONE_MANAGE')) throw forbidden('PAYMENT_MILESTONE_MANAGE permission is required.');
-    const project = await tx.project.findFirst({ where: scopedProjectWhere(auth, { id: projectId }), select: { id: true } });
-    if (!project) throw notFound('Project');
-    const existing = await tx.paymentMilestone.findFirst({
-      where: { id: milestoneId, projectId, organizationId: auth.organizationId },
-    });
-    if (!existing) throw notFound('Payment milestone');
-    const { percentage: _percentage, ...milestoneData } = input;
-    const milestone = await tx.paymentMilestone.update({ where: { id: milestoneId }, data: milestoneData });
-    await recordAudit(tx, ctx, {
-      action: 'UPDATE', entityType: 'PaymentMilestone', entityId: milestone.id,
-      summary: `Payment milestone ${milestone.title} updated`, oldData: existing, newData: milestone,
-    });
-    return milestone;
+  if (!auth.permissions.has('PAYMENT_MILESTONE_MANAGE')) throw forbidden('PAYMENT_MILESTONE_MANAGE permission is required.');
+  const existing = await prisma.paymentMilestone.findFirst({
+    where: { id: milestoneId, projectId, organizationId: auth.organizationId },
   });
+  if (!existing) throw notFound('Payment milestone');
+  await assertMilestonesWithinProjectTotal(auth, projectId, input.amount, milestoneId);
+  const { percentage: _percentage, ...milestoneData } = input;
+  const milestone = await prisma.paymentMilestone.update({ where: { id: milestoneId }, data: milestoneData });
+  await recordAudit(prisma, ctx, {
+    action: 'UPDATE', entityType: 'PaymentMilestone', entityId: milestone.id,
+    summary: `Payment milestone ${milestone.title} updated`, oldData: existing, newData: milestone,
+  });
+  return milestone;
 }
 
 export interface CreateProjectInput {
