@@ -306,8 +306,18 @@ async function assertAssignableRoles(
   return roles.map(({ id, name }) => ({ id, name }));
 }
 
+/**
+ * User writes run several sequential queries inside one interactive
+ * transaction. Prisma's 5 s default expires under real pooled-DB latency
+ * (P2028 surfaced as a 500), so these match the 15 s budget in utils/transaction.
+ */
+const USER_TX_OPTIONS = { maxWait: 10_000, timeout: 15_000 } as const;
+
 export async function createUser(auth: AuthContext, input: CreateUserInput, ctx: AuditRequestContext) {
   if (input.roleIds.length === 0) throw badRequest('At least one role must be assigned');
+
+  // CPU-bound hashing needs no DB round trip, so it stays outside the transaction.
+  const passwordHash = await hashPassword(input.password);
 
   return prisma.$transaction(async (tx) => {
     await assertAssignableRoles(tx.role, auth, input.roleIds);
@@ -333,7 +343,7 @@ export async function createUser(auth: AuthContext, input: CreateUserInput, ctx:
         email,
         phone: input.phone,
         employeeCode,
-        passwordHash: await hashPassword(input.password),
+        passwordHash,
         userRoles: {
           createMany: {
             data: input.roleIds.map((roleId) => ({ roleId, assignedBy: auth.userId })),
@@ -353,7 +363,7 @@ export async function createUser(auth: AuthContext, input: CreateUserInput, ctx:
     });
 
     return user;
-  }).catch((error: unknown) => {
+  }, USER_TX_OPTIONS).catch((error: unknown) => {
     if (isEmployeeCodeUniqueConflict(error)) throw conflict('Employee ID is already in use');
     throw error;
   });
@@ -414,7 +424,7 @@ export async function updateUser(
     });
 
     return updated;
-  }).catch((error: unknown) => {
+  }, USER_TX_OPTIONS).catch((error: unknown) => {
     if (isEmployeeCodeUniqueConflict(error)) throw conflict('Employee ID is already in use');
     throw error;
   });
