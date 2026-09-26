@@ -8,6 +8,8 @@ import { AuthContext } from '../types';
 import { AuditRequestContext, recordAudit } from './audit.service';
 
 const SORTABLE = ['date', 'createdAt'] as const;
+const EMPLOYEE_USER_FILTER = { user: { employeeProfile: { isNot: null } } } as const;
+const EMPLOYEE_PROFILE_FILTER = { employeeProfile: { isNot: null } } as const;
 
 export function listAttendance(
   organizationId: string,
@@ -29,6 +31,7 @@ export function listAttendance(
   return paginate(prisma.attendance, {
     where: andWhere(
       { organizationId },
+      EMPLOYEE_USER_FILTER,
       query.userId ? { userId: query.userId } : undefined,
       query.status ? { status: query.status } : undefined,
       query.workLocation ? { workLocation: query.workLocation } : undefined,
@@ -76,10 +79,10 @@ export async function markAttendance(
   }
 
   const user = await prisma.user.findFirst({
-    where: { id: targetUserId, organizationId: auth.organizationId, deletedAt: null },
+    where: { id: targetUserId, organizationId: auth.organizationId, deletedAt: null, ...EMPLOYEE_PROFILE_FILTER },
     select: { id: true, branchId: true },
   });
-  if (!user) throw notFound('User');
+  if (!user) throw notFound('Employee');
 
   const date = toDateOnly(input.date);
   const checkIn = input.checkIn ? new Date(input.checkIn) : undefined;
@@ -145,6 +148,7 @@ export function getAttendanceSummary(
     by: ['status'],
     where: andWhere(
       { organizationId },
+      EMPLOYEE_USER_FILTER,
       query.userId ? { userId: query.userId } : undefined,
       date ? { date } : undefined,
     ),
@@ -169,7 +173,7 @@ export async function getMonthlyAttendanceSummary(
   const from = new Date(`${month}-01T00:00:00.000Z`);
   const to = new Date(Date.UTC(from.getUTCFullYear(), from.getUTCMonth() + 1, 1));
   const employees = await prisma.user.findMany({
-    where: { organizationId, deletedAt: null, ...(query.userId ? { id: query.userId } : {}) },
+    where: { organizationId, deletedAt: null, ...EMPLOYEE_PROFILE_FILTER, ...(query.userId ? { id: query.userId } : {}) },
     select: {
       id: true, fullName: true, employeeCode: true,
       employeeProfile: { select: { monthlySalary: true, dailyRate: true, shiftStart: true, shiftEnd: true } },
@@ -263,6 +267,7 @@ export function listLeaveRequests(
   return paginate(prisma.leaveRequest, {
     where: andWhere(
       { organizationId },
+      EMPLOYEE_USER_FILTER,
       query.userId ? { userId: query.userId } : undefined,
       query.status ? { status: query.status } : undefined,
       startDate ? { startDate } : undefined,
@@ -288,7 +293,7 @@ export async function requestLeave(
 
   const userId = input.userId ?? auth.userId;
   const user = await prisma.user.findFirst({
-    where: { id: userId, organizationId: auth.organizationId, deletedAt: null },
+    where: { id: userId, organizationId: auth.organizationId, deletedAt: null, ...EMPLOYEE_PROFILE_FILTER },
     select: { id: true },
   });
   if (!user) throw notFound('Employee');

@@ -595,6 +595,7 @@ model User {
   branch       Branch?      @relation(fields: [branchId], references: [id], onDelete: SetNull)
 
   employeeProfile EmployeeProfile?
+  freelancerProfile Freelancer?
 
   userRoles          UserRole[]     @relation("UserRoleMember")
   personalRoles      Role[]         @relation("PersonalRole")
@@ -1333,6 +1334,7 @@ model ShootAssignment {
 model Freelancer {
   id             String           @id @default(uuid()) @db.Uuid
   organizationId String           @map("organization_id") @db.Uuid
+  userId         String?          @unique @map("user_id") @db.Uuid
   code           String           @db.VarChar(32)
   fullName       String           @map("full_name") @db.VarChar(160)
   phone          String           @db.VarChar(32)
@@ -1369,6 +1371,7 @@ model Freelancer {
   deletedBy      String?          @map("deleted_by") @db.Uuid
 
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user         User?        @relation(fields: [userId], references: [id], onDelete: SetNull)
 
   assignments ShootAssignment[]
   payouts     FreelancerPayout[]
@@ -1382,6 +1385,7 @@ model Freelancer {
   onboardingTokens FreelancerOnboardingToken[]
 
   @@unique([organizationId, code])
+  @@index([userId])
   @@index([organizationId, status])
   @@index([organizationId, primarySkill])
   @@index([phone])

@@ -14,6 +14,9 @@ import { nextDocumentNumber } from '../utils/documentNumber';
 
 const MAX_FAILED_ATTEMPTS = 5;
 const LOCK_DURATION_MS = 15 * 60 * 1000;
+
+const portalUserEmail = (email: string | undefined, phone: string) =>
+  (email?.trim().toLowerCase() || `${phone.replace(/\D/g, '')}@freelancer.local`);
 const PORTAL_PORTFOLIO_FILE_TYPES = new Set(['FREELANCER', 'FREELANCER_DOCUMENT', 'FREELANCER_PORTFOLIO']);
 const OPEN_TASK_STATUSES: TaskStatus[] = ['TODO', 'ASSIGNED', 'IN_PROGRESS', 'PAUSED', 'IN_REVIEW'];
 const ACTIVE_CONNECTION_STATUSES: FreelancerConnectionStatus[] = ['INTERESTED', 'CONTACTED', 'ACCEPTED', 'ASSIGNED'];
@@ -178,6 +181,21 @@ export async function login(
   return { me: await getPortalMe(freelancer.organizationId, freelancer.id), tokens };
 }
 
+export async function issuePortalSessionForUser(
+  userId: string,
+  organizationId: string,
+  meta: RequestMeta,
+): Promise<{ me: Awaited<ReturnType<typeof getPortalMe>>; tokens: FreelancerTokens } | null> {
+  const freelancer = await prisma.freelancer.findFirst({
+    where: { userId, organizationId, deletedAt: null, status: { not: 'SUSPENDED' } },
+    select: { id: true, organizationId: true },
+  });
+  if (!freelancer) return null;
+  const tokens = await issueSession(freelancer.id, freelancer.organizationId, meta);
+  await prisma.freelancer.update({ where: { id: freelancer.id }, data: { lastLoginAt: new Date() } });
+  return { me: await getPortalMe(freelancer.organizationId, freelancer.id), tokens };
+}
+
 export async function refresh(refreshToken: string, meta: RequestMeta) {
   const session = await prisma.freelancerSession.findUnique({
     where: { refreshTokenHash: hashRefreshToken(refreshToken) },
@@ -255,9 +273,21 @@ export async function submitApplication(input: {
         const primarySkill = input.primarySkill ?? 'LEAD_PHOTOGRAPHER';
         const skills = input.skills ?? [];
         const expectedRate = input.expectedRate === undefined ? undefined : money(input.expectedRate);
+        const passwordHash = await hashPassword(input.password);
+        const user = await tx.user.create({
+          data: {
+            organizationId: organization.id,
+            fullName: input.fullName,
+            email: portalUserEmail(normalizedEmail, input.phone),
+            phone: input.phone,
+            passwordHash,
+            status: 'ACTIVE',
+          },
+        });
         const freelancer = await tx.freelancer.create({
           data: {
             organizationId: organization.id,
+            userId: user.id,
             code,
             fullName: input.fullName,
             phone: input.phone,
@@ -269,7 +299,7 @@ export async function submitApplication(input: {
             rate: expectedRate,
             rateType: 'PER_DAY',
             notes: input.notes,
-            passwordHash: await hashPassword(input.password),
+            passwordHash,
             status: 'ACTIVE',
           },
         });
@@ -305,9 +335,21 @@ export async function submitApplication(input: {
     const primarySkill = input.primarySkill ?? 'LEAD_PHOTOGRAPHER';
     const skills = input.skills ?? [];
     const expectedRate = input.expectedRate === undefined ? undefined : money(input.expectedRate);
+    const passwordHash = await hashPassword(input.password);
+    const user = await tx.user.create({
+      data: {
+        organizationId: organization.id,
+        fullName: input.fullName,
+        email: portalUserEmail(normalizedEmail, input.phone),
+        phone: input.phone,
+        passwordHash,
+        status: 'ACTIVE',
+      },
+    });
     const freelancer = await tx.freelancer.create({
       data: {
         organizationId: organization.id,
+        userId: user.id,
         code,
         fullName: input.fullName,
         phone: input.phone,
@@ -319,7 +361,7 @@ export async function submitApplication(input: {
         rate: expectedRate,
         rateType: 'PER_DAY',
         notes: input.notes,
-        passwordHash: await hashPassword(input.password),
+        passwordHash,
         status: 'ACTIVE',
       },
     });

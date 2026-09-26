@@ -1,10 +1,12 @@
 import { Request, Response } from 'express';
 import { env } from '../config/env';
 import { ACCESS_COOKIE, REFRESH_COOKIE } from '../middleware/auth';
+import { FREELANCER_ACCESS_COOKIE, FREELANCER_REFRESH_COOKIE } from '../middleware/freelancerAuth';
 import { asyncHandler, auditContext, requireAuthContext } from '../utils/http';
 import { sendSuccess } from '../utils/response';
 import { unauthenticated } from '../utils/errors';
 import * as authService from '../services/auth.service';
+import * as freelancerPortalService from '../services/freelancerPortal.service';
 
 /**
  * Shared cookie attributes. A deletion cookie is only honoured by browsers when
@@ -31,6 +33,11 @@ function setAuthCookies(res: Response, tokens: authService.AuthTokens): void {
   res.cookie(REFRESH_COOKIE, tokens.refreshToken, cookieOptions(tokens.refreshTokenExpiresIn));
 }
 
+function setFreelancerCookies(res: Response, tokens: freelancerPortalService.FreelancerTokens): void {
+  res.cookie(FREELANCER_ACCESS_COOKIE, tokens.accessToken, cookieOptions(tokens.accessTokenExpiresIn));
+  res.cookie(FREELANCER_REFRESH_COOKIE, tokens.refreshToken, cookieOptions(tokens.refreshTokenExpiresIn));
+}
+
 /**
  * Drops both auth cookies. Called on logout, on password change and — crucially
  * — whenever a refresh is rejected: the refresh token is the last credential the
@@ -41,6 +48,8 @@ function setAuthCookies(res: Response, tokens: authService.AuthTokens): void {
 function clearAuthCookies(res: Response): void {
   res.clearCookie(ACCESS_COOKIE, cookieBase());
   res.clearCookie(REFRESH_COOKIE, cookieBase());
+  res.clearCookie(FREELANCER_ACCESS_COOKIE, cookieBase());
+  res.clearCookie(FREELANCER_REFRESH_COOKIE, cookieBase());
 }
 
 const requestMeta = (req: Request) => ({
@@ -52,6 +61,8 @@ const requestMeta = (req: Request) => ({
 export const login = asyncHandler(async (req, res) => {
   const { user, tokens } = await authService.login(req.body, requestMeta(req));
   setAuthCookies(res, tokens);
+  const freelancerSession = await freelancerPortalService.issuePortalSessionForUser(user.id, user.organizationId, requestMeta(req));
+  if (freelancerSession) setFreelancerCookies(res, freelancerSession.tokens);
   // The token pair is returned too, so non-browser clients need no cookie jar.
   return sendSuccess(res, { user, tokens });
 });
@@ -76,6 +87,10 @@ export const refresh = asyncHandler(async (req, res) => {
     throw error;
   }
   setAuthCookies(res, result.tokens);
+  if (result.user.freelancerProfile) {
+    const freelancerSession = await freelancerPortalService.issuePortalSessionForUser(result.user.id, result.user.organizationId, requestMeta(req));
+    if (freelancerSession) setFreelancerCookies(res, freelancerSession.tokens);
+  }
   return sendSuccess(res, { user: result.user, tokens: result.tokens });
 });
 
@@ -89,8 +104,13 @@ export const logout = asyncHandler(async (req, res) => {
 export const me = asyncHandler(async (req, res) => {
   const auth = requireAuthContext(req);
   // `requireAuth` already read this user, its roles and its permissions.
-  if (auth.sessionUser) return sendSuccess(res, auth.sessionUser);
-  return sendSuccess(res, await authService.getCurrentUser(auth.userId));
+  const user = auth.sessionUser ?? await authService.getCurrentUser(auth.userId);
+  const cookies = req.cookies as Record<string, string> | undefined;
+  if (user.freelancerProfile && !cookies?.[FREELANCER_ACCESS_COOKIE] && !cookies?.[FREELANCER_REFRESH_COOKIE]) {
+    const freelancerSession = await freelancerPortalService.issuePortalSessionForUser(user.id, user.organizationId, requestMeta(req));
+    if (freelancerSession) setFreelancerCookies(res, freelancerSession.tokens);
+  }
+  return sendSuccess(res, user);
 });
 
 export const sessions = asyncHandler(async (req, res) => {
