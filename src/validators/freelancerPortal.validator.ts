@@ -5,7 +5,7 @@ import { FREELANCER_AVAILABILITY_STATUS, RATE_TYPE, TASK_STATUS } from './ops.va
 
 export const freelancerPortalLoginSchema = z.object({
   identifier: z.string().trim().min(1).max(160),
-  password,
+  password: z.string().min(1).max(255),
 });
 
 export const freelancerPortalRefreshSchema = z.object({});
