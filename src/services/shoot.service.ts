@@ -206,7 +206,7 @@ export interface AssignCrewInput {
  *
  * Three separate guards, deliberately layered (§10, §36):
  *   1. exactly one of userId/freelancerId — checked here and by a CHECK constraint
- *   2. no duplicate assignment — unique (shoot, user) / (shoot, freelancer)
+ *   2. no duplicate assignment for the same role — unique (shoot, user, role) / (shoot, freelancer, role)
  *   3. no double-booking across shoots on the same date — checked here
  */
 export async function assignCrew(
@@ -289,11 +289,12 @@ export async function assignCrew(
     const existing = await tx.shootAssignment.findFirst({
       where: {
         shootId,
+        role: input.role,
         ...(input.userId ? { userId: input.userId } : { freelancerId: input.freelancerId }),
       },
       select: { id: true },
     });
-    if (existing) throw conflict('This person is already assigned to this shoot');
+    if (existing) throw conflict('Employee is already assigned to this role.');
 
     const assignment = await tx.shootAssignment.create({
       data: {
@@ -364,6 +365,19 @@ export async function updateAssignment(
       where: { id: assignmentId, shootId, shoot: { organizationId: auth.organizationId } },
     });
     if (!assignment) throw notFound('Shoot assignment');
+
+    if (input.role) {
+      const duplicate = await tx.shootAssignment.findFirst({
+        where: {
+          id: { not: assignmentId },
+          shootId,
+          role: input.role,
+          ...(assignment.userId ? { userId: assignment.userId } : { freelancerId: assignment.freelancerId }),
+        },
+        select: { id: true },
+      });
+      if (duplicate) throw conflict('Employee is already assigned to this role.');
+    }
 
     const updated = await tx.shootAssignment.update({ where: { id: assignmentId }, data: input });
 

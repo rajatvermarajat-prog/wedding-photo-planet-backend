@@ -339,15 +339,16 @@ async function createProjectShoots(
       },
     });
 
-    const seenUsers = new Set<string>();
+    const seenCrewRoleAssignments = new Set<string>();
     for (const assignment of item.crewAssignments || []) {
       if (!validUserIds.has(assignment.userId)) throw notFound('Team member');
       const assignmentDate = formatDateKey(item.shootDate);
       const employeeName = crewUserNames.get(assignment.userId) || 'This employee';
-      if (seenUsers.has(assignment.userId)) {
-        throw conflict(`${employeeName} is selected more than once for ${assignmentDate}.`);
+      const crewRoleKey = `${assignment.userId}:${assignment.role}`;
+      if (seenCrewRoleAssignments.has(crewRoleKey)) {
+        throw conflict(`${employeeName} is already assigned to ${assignment.role} for ${assignmentDate}.`);
       }
-      seenUsers.add(assignment.userId);
+      seenCrewRoleAssignments.add(crewRoleKey);
 
       const sameDayAssignments = await tx.shootAssignment.findMany({
         where: {

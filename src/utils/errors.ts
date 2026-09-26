@@ -13,6 +13,7 @@ export type ErrorCode =
   | 'IDEMPOTENCY_CONFLICT'
   | 'IDEMPOTENCY_IN_PROGRESS'
   | 'PAYLOAD_TOO_LARGE'
+  | 'SERVICE_UNAVAILABLE'
   | 'INTERNAL_ERROR';
 
 export interface ErrorDetail {

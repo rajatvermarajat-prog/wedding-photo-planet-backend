@@ -499,16 +499,24 @@ export async function searchFreelancers(
   const page = query.page ?? 1;
   const limit = query.pageSize ?? 20;
   const availabilityDate = query.availabilityDate ? toDateOnly(query.availabilityDate) : undefined;
+  const searchTerm = query.q?.trim();
+  const matchingRoles = searchTerm
+    ? Object.values(CrewRole).filter((role) => role.replaceAll('_', ' ').toLowerCase().includes(searchTerm.toLowerCase()))
+    : [];
   const availabilityStatuses: FreelancerAvailabilityStatus[] = query.availabilityStatus
     ? [query.availabilityStatus]
     : ['AVAILABLE', 'PARTIALLY_AVAILABLE'];
   const where = andWhere(
     searchableFreelancerWhere(auth.organizationId),
-    query.q ? {
+    searchTerm ? {
       OR: [
-        { fullName: { contains: query.q, mode: 'insensitive' } },
-        { city: { contains: query.q, mode: 'insensitive' } },
-        { skills: { has: query.q } },
+        { fullName: { contains: searchTerm, mode: 'insensitive' } },
+        { email: { contains: searchTerm, mode: 'insensitive' } },
+        { phone: { contains: searchTerm, mode: 'insensitive' } },
+        { code: { contains: searchTerm, mode: 'insensitive' } },
+        { city: { contains: searchTerm, mode: 'insensitive' } },
+        { skills: { has: searchTerm } },
+        ...(matchingRoles.length ? [{ primarySkill: { in: matchingRoles } }] : []),
       ],
     } : undefined,
     query.location ? { city: { contains: query.location, mode: 'insensitive' } } : undefined,
@@ -1165,16 +1173,17 @@ export async function connectConnection(
       if (sameDay >= existing.freelancer.maxShootsPerDay) {
         throw conflict(`This freelancer is already booked for ${sameDay} shoot(s) on that date`);
       }
+      const assignmentRole = input.role ?? existing.freelancer.primarySkill ?? 'OTHER';
       const duplicateAssignment = await tx.shootAssignment.findFirst({
-        where: { shootId: shoot.id, freelancerId: existing.freelancerId },
+        where: { shootId: shoot.id, freelancerId: existing.freelancerId, role: assignmentRole },
         select: { id: true },
       });
-      if (duplicateAssignment) throw conflict('This freelancer is already assigned to this shoot');
+      if (duplicateAssignment) throw conflict('Employee is already assigned to this role.');
       assignment = await tx.shootAssignment.create({
         data: {
           shootId: shoot.id,
           freelancerId: existing.freelancerId,
-          role: input.role ?? existing.freelancer.primarySkill ?? 'OTHER',
+          role: assignmentRole,
           assignedById: auth.userId,
           notes: input.notes,
         },

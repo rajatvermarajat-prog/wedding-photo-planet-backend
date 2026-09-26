@@ -10,9 +10,13 @@ export const freelancerPortalLoginSchema = z.object({
 
 export const freelancerPortalRefreshSchema = z.object({});
 
+const publicFreelancerPassword = z.string().min(6, 'Password must be at least 6 characters').max(128);
+
 export const publicFreelancerApplicationSchema = z.object({
   fullName: z.string().trim().min(1).max(160),
   phone,
+  password: publicFreelancerPassword,
+  confirmPassword: z.string().optional(),
   email: email.optional(),
   city: z.string().trim().max(80).optional(),
   primarySkill: CREW_ROLE.optional(),
@@ -21,6 +25,9 @@ export const publicFreelancerApplicationSchema = z.object({
   portfolioUrl: z.string().url().max(1024).optional(),
   expectedRate: nonNegativeDecimal.optional(),
   notes: z.string().max(5000).optional(),
+}).refine((v) => v.confirmPassword === undefined || v.confirmPassword === v.password, {
+  message: 'Passwords do not match',
+  path: ['confirmPassword'],
 });
 
 export const freelancerProfileUpdateSchema = z.object({
@@ -56,15 +63,34 @@ export const onboardingPasswordSchema = z.object({
   path: ['confirmPassword'],
 });
 
-export const portalAvailabilitySchema = z.object({
+const portalAvailabilityBaseSchema = z.object({
   date: dateOnly,
   status: FREELANCER_AVAILABILITY_STATUS,
   startTime: isoDateTime.optional().nullable(),
   endTime: isoDateTime.optional().nullable(),
   notes: z.string().max(2000).optional().nullable(),
-}).refine((v) => !v.startTime || !v.endTime || v.endTime >= v.startTime, {
+});
+
+export const portalAvailabilitySchema = portalAvailabilityBaseSchema.refine((v) => !v.startTime || !v.endTime || v.endTime >= v.startTime, {
   message: 'endTime cannot be before startTime',
   path: ['endTime'],
+});
+
+export const portalAvailabilityUpdateSchema = portalAvailabilityBaseSchema
+  .omit({ date: true })
+  .partial()
+  .refine((v) => Object.keys(v).length > 0, 'At least one field is required')
+  .refine((v) => !v.startTime || !v.endTime || v.endTime >= v.startTime, {
+    message: 'endTime cannot be before startTime',
+    path: ['endTime'],
+  });
+
+export const portalAvailabilityQuery = listQuery.extend({
+  status: FREELANCER_AVAILABILITY_STATUS.optional(),
+});
+
+export const portalAvailabilityDateParam = z.object({
+  date: dateOnly,
 });
 
 export const portalPortfolioCreateSchema = z.object({
