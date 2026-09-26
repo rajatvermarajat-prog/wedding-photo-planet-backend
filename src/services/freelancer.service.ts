@@ -1167,7 +1167,7 @@ export async function connectConnection(
         where: {
           freelancerId: existing.freelancerId,
           status: { notIn: ['DECLINED', 'CANCELLED'] },
-          shoot: { shootDate: shoot.shootDate, deletedAt: null },
+          shoot: { projectId: { not: project.id }, shootDate: shoot.shootDate, deletedAt: null },
         },
       });
       if (sameDay >= existing.freelancer.maxShootsPerDay) {
@@ -1175,10 +1175,15 @@ export async function connectConnection(
       }
       const assignmentRole = input.role ?? existing.freelancer.primarySkill ?? 'OTHER';
       const duplicateAssignment = await tx.shootAssignment.findFirst({
-        where: { shootId: shoot.id, freelancerId: existing.freelancerId, role: assignmentRole },
+        where: {
+          shootId: shoot.id,
+          freelancerId: existing.freelancerId,
+          role: assignmentRole,
+          status: { notIn: ['DECLINED', 'CANCELLED'] },
+        },
         select: { id: true },
       });
-      if (duplicateAssignment) throw conflict('Employee is already assigned to this role.');
+      if (duplicateAssignment) throw conflict('This freelancer is already assigned to this shoot in that role');
       assignment = await tx.shootAssignment.create({
         data: {
           shootId: shoot.id,

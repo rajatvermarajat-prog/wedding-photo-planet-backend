@@ -1288,7 +1288,7 @@ model Shoot {
 /// (`num_nonnulls(user_id, freelancer_id) = 1`) in the migration SQL.
 /// Duplicate assignment of the same person to the same shoot role is blocked by
 /// the two unique indexes below. The same person may hold different roles on
-/// the same shoot.
+/// the same shoot. Same-day work on another project is rejected in the service layer.
 model ShootAssignment {
   id               String           @id @default(uuid()) @db.Uuid
   shootId          String           @map("shoot_id") @db.Uuid
