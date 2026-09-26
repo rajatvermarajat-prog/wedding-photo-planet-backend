@@ -37,6 +37,8 @@ interface SessionRow {
   org_slug: string;
   org_currency: string;
   org_timezone: string;
+  freelancer_id: string | null;
+  freelancer_status: string | null;
   roles: string[];
   permissions: string[];
   override_permissions: unknown;
@@ -87,6 +89,8 @@ export async function requireAuth(
         o.slug          AS org_slug,
         o.currency      AS org_currency,
         o.timezone      AS org_timezone,
+        f.id            AS freelancer_id,
+        f.status::text  AS freelancer_status,
         coalesce(array_agg(DISTINCT r.name) FILTER (WHERE r.id IS NOT NULL), '{}') AS roles,
         coalesce(array_agg(DISTINCT p.key) FILTER (WHERE p.id IS NOT NULL), '{}') AS permissions,
         max(upo.permission_keys::text)::jsonb AS override_permissions
@@ -98,8 +102,12 @@ export async function requireAuth(
       LEFT JOIN role_permissions rp ON rp.role_id = r.id
       LEFT JOIN permissions p ON p.id = rp.permission_id
       LEFT JOIN user_permission_overrides upo ON upo.user_id = u.id AND upo.organization_id = u.organization_id
+      LEFT JOIN freelancers f ON f.user_id = u.id
+        AND f.organization_id = u.organization_id
+        AND f.deleted_at IS NULL
+        AND f.status NOT IN ('SUSPENDED', 'INACTIVE')
       WHERE s.id = ${payload.sessionId}::uuid
-      GROUP BY s.id, s.status, s.expires_at, u.id, o.id
+      GROUP BY s.id, s.status, s.expires_at, u.id, o.id, f.id, f.status
     `;
 
     const row = rows[0];
@@ -146,6 +154,9 @@ export async function requireAuth(
           currency: row.org_currency,
           timezone: row.org_timezone,
         },
+        freelancerProfile: row.freelancer_id
+          ? { id: row.freelancer_id, status: row.freelancer_status ?? 'ACTIVE' }
+          : null,
       },
     };
 

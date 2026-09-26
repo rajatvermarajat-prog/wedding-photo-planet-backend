@@ -3,7 +3,7 @@ import { prisma, Tx } from '../config/prisma';
 import { andWhere, findScoped, paginate, searchFilter } from '../repositories/base.repository';
 import { resolveSort } from '../utils/pagination';
 import { hashPassword } from '../utils/password';
-import { badRequest, conflict, forbidden } from '../utils/errors';
+import { badRequest, conflict, forbidden, notFound } from '../utils/errors';
 import { AuthContext } from '../types';
 import { AuditRequestContext, recordAudit } from './audit.service';
 import { revokeAllSessions } from './auth.service';
@@ -11,6 +11,7 @@ import { revokeAllSessions } from './auth.service';
 const SORTABLE = ['createdAt', 'fullName', 'email', 'lastLoginAt'] as const;
 const EMPLOYEE_CODE_PREFIX = 'EMP-S';
 const EMPLOYEE_CODE_PATTERN = /^EMP-S\d{2,}$/;
+const EMPLOYEE_DIRECTORY_FILTER = { employeeProfile: { isNot: null } } as const;
 
 const PUBLIC_SELECT = {
   id: true,
@@ -131,6 +132,7 @@ export async function listUsers(
   const result = await paginate(prisma.user, {
     where: andWhere(
       { organizationId: auth.organizationId, deletedAt: null },
+      EMPLOYEE_DIRECTORY_FILTER,
       canViewAllTeam ? undefined : { id: auth.userId },
       query.status ? { status: query.status } : undefined,
       query.branchId ? { branchId: query.branchId } : undefined,
@@ -157,7 +159,18 @@ export function getUser(
   db: { user: typeof prisma.user } = prisma,
 ) {
   // PUBLIC_SELECT deliberately omits passwordHash — it never leaves the DB (§37).
-  return findScoped(db.user, organizationId, id, 'User', { select: PUBLIC_SELECT });
+  return db.user.findFirst({
+    where: {
+      id,
+      organizationId,
+      deletedAt: null,
+      ...EMPLOYEE_DIRECTORY_FILTER,
+    },
+    select: PUBLIC_SELECT,
+  }).then((user) => {
+    if (!user) throw notFound('User');
+    return user;
+  });
 }
 
 export async function getUserForAuth(auth: AuthContext, id: string) {

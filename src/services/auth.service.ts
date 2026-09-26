@@ -39,6 +39,7 @@ export interface SessionUser {
   roles: string[];
   permissions: string[];
   organization: { id: string; name: string; slug: string; currency: string; timezone: string };
+  freelancerProfile: { id: string; status: string } | null;
 }
 
 const USER_SELECT = {
@@ -53,6 +54,7 @@ const USER_SELECT = {
   failedLoginAttempts: true,
   lockedUntil: true,
   organization: { select: { id: true, name: true, slug: true, currency: true, timezone: true } },
+  freelancerProfile: { select: { id: true, status: true, deletedAt: true } },
   userRoles: {
     select: {
       role: {
@@ -70,10 +72,14 @@ const USER_SELECT = {
 
 type RawUser = Awaited<ReturnType<typeof findUserForLogin>>;
 
-async function findUserForLogin(email: string, organizationSlug?: string) {
+async function findUserForLogin(identifier: string, organizationSlug?: string) {
   const users = await prisma.user.findMany({
     where: {
-      email: email.toLowerCase(),
+      OR: [
+        { email: identifier.toLowerCase() },
+        { phone: identifier },
+        { employeeCode: identifier },
+      ],
       deletedAt: null,
       ...(organizationSlug ? { organization: { slug: organizationSlug } } : {}),
     },
@@ -115,6 +121,12 @@ function toSessionUser(user: NonNullable<RawUser>): SessionUser {
     roles: activeRoles.map((ur) => ur.role.name),
     permissions: [...permissions].sort(),
     organization: user.organization,
+    freelancerProfile: user.freelancerProfile &&
+      user.freelancerProfile.deletedAt === null &&
+      user.freelancerProfile.status !== 'SUSPENDED' &&
+      user.freelancerProfile.status !== 'INACTIVE'
+      ? { id: user.freelancerProfile.id, status: user.freelancerProfile.status }
+      : null,
   };
 }
 
@@ -149,14 +161,14 @@ export async function login(
   input: { email: string; password: string; organizationSlug?: string },
   meta: RequestMeta,
 ): Promise<{ user: SessionUser; tokens: AuthTokens }> {
-  const email = input.email.toLowerCase();
-  const user = await findUserForLogin(email, input.organizationSlug);
+  const identifier = input.email.trim().toLowerCase();
+  const user = await findUserForLogin(identifier, input.organizationSlug);
 
   const recordAttempt = async (outcome: LoginOutcome, userId?: string) => {
     await prisma.loginHistory.create({
       data: {
         userId: userId ?? null,
-        email,
+        email: identifier,
         outcome,
         ipAddress: meta.ipAddress ?? null,
         userAgent: meta.userAgent?.slice(0, 512) ?? null,

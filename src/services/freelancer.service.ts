@@ -31,7 +31,6 @@ const ACTIVE_APPLICATION_STATUSES: FreelancerApplicationStatus[] = [
   'SUBMITTED',
   'UNDER_REVIEW',
 ];
-const SEARCHABLE_SUBSCRIPTION_STATUSES: FreelancerSubscriptionStatus[] = ['ACTIVE'];
 const ACTIVE_CONNECTION_STATUSES: FreelancerConnectionStatus[] = ['INTERESTED', 'CONTACTED', 'ACCEPTED', 'ASSIGNED'];
 const CONNECTION_TRANSITIONS: Record<FreelancerConnectionStatus, FreelancerConnectionStatus[]> = {
   INTERESTED: ['CONTACTED', 'ACCEPTED', 'DECLINED', 'EXPIRED', 'ASSIGNED'],
@@ -466,20 +465,13 @@ export async function isFreelancerSearchable(
 }
 
 function searchableFreelancerWhere(organizationId: string, now = new Date()): Prisma.FreelancerWhereInput {
+  void now;
   return {
     organizationId,
     deletedAt: null,
     status: 'ACTIVE',
     fullName: { not: '' },
     phone: { not: '' },
-    applications: { some: { status: 'APPROVED' } },
-    subscriptions: {
-      some: {
-        status: { in: SEARCHABLE_SUBSCRIPTION_STATUSES },
-        OR: [{ currentPeriodEnd: null }, { currentPeriodEnd: { gte: now } }],
-        canceledAt: null,
-      },
-    },
   };
 }
 
