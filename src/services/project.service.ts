@@ -19,6 +19,15 @@ import { AuthContext } from '../types';
 import { AuditRequestContext, recordAudit } from './audit.service';
 
 const SORTABLE = ['createdAt', 'weddingDate', 'name', 'projectNumber', 'totalQuotation'] as const;
+const BOOKING_BLOCKING_SHOOT_STATUSES: ShootStatus[] = [ShootStatus.SCHEDULED, ShootStatus.IN_PROGRESS, ShootStatus.COMPLETED];
+const formatDateKey = (date: Date) => date.toISOString().slice(0, 10);
+const hasKnownNonOverlappingTimes = (
+  next: { startTime?: Date | null; endTime?: Date | null },
+  existing: { startTime?: Date | null; endTime?: Date | null },
+) => {
+  if (!next.startTime || !next.endTime || !existing.startTime || !existing.endTime) return false;
+  return next.endTime.getTime() <= existing.startTime.getTime() || existing.endTime.getTime() <= next.startTime.getTime();
+};
 
 /**
  * Legal status transitions. A project cannot jump from LEAD straight to
@@ -291,12 +300,16 @@ async function createProjectShoots(
     shoots.flatMap((shoot) => shoot.crewAssignments || []).map((assignment) => assignment.userId),
   )];
   const validUserIds = new Set<string>();
+  const crewUserNames = new Map<string, string>();
   if (crewUserIds.length > 0) {
     const users = await tx.user.findMany({
       where: { id: { in: crewUserIds }, organizationId: auth.organizationId, deletedAt: null },
-      select: { id: true },
+      select: { id: true, fullName: true },
     });
-    users.forEach((user) => validUserIds.add(user.id));
+    users.forEach((user) => {
+      validUserIds.add(user.id);
+      crewUserNames.set(user.id, user.fullName);
+    });
   }
 
   for (const [index, item] of shoots.entries()) {
@@ -329,17 +342,30 @@ async function createProjectShoots(
     const seenUsers = new Set<string>();
     for (const assignment of item.crewAssignments || []) {
       if (!validUserIds.has(assignment.userId)) throw notFound('Team member');
-      if (seenUsers.has(assignment.userId)) throw conflict('This employee is already assigned on this date.');
+      const assignmentDate = formatDateKey(item.shootDate);
+      const employeeName = crewUserNames.get(assignment.userId) || 'This employee';
+      if (seenUsers.has(assignment.userId)) {
+        throw conflict(`${employeeName} is selected more than once for ${assignmentDate}.`);
+      }
       seenUsers.add(assignment.userId);
 
-      const sameDay = await tx.shootAssignment.count({
+      const sameDayAssignments = await tx.shootAssignment.findMany({
         where: {
           userId: assignment.userId,
           status: { notIn: ['DECLINED', 'CANCELLED'] },
-          shoot: { shootDate: item.shootDate, deletedAt: null },
+          shoot: {
+            projectId: { not: projectId },
+            shootDate: dateRangeFilter(assignmentDate, assignmentDate),
+            status: { in: BOOKING_BLOCKING_SHOOT_STATUSES },
+            deletedAt: null,
+          },
         },
+        select: { shoot: { select: { title: true, shootDate: true, startTime: true, endTime: true } }, user: { select: { fullName: true } } },
       });
-      if (sameDay > 0) throw conflict('This employee is already assigned on this date.');
+      const sameDay = sameDayAssignments.find((row) => !hasKnownNonOverlappingTimes(item, row.shoot));
+      if (sameDay) {
+        throw conflict(`${sameDay.user?.fullName || employeeName} is already assigned on ${formatDateKey(sameDay.shoot.shootDate)} for "${sameDay.shoot.title}".`);
+      }
 
       await tx.shootAssignment.create({
         data: {

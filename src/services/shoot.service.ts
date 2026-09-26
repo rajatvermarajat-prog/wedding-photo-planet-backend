@@ -8,6 +8,15 @@ import { AuthContext } from '../types';
 import { AuditRequestContext, recordAudit } from './audit.service';
 
 const SORTABLE = ['shootDate', 'createdAt', 'title', 'status'] as const;
+const BOOKING_BLOCKING_SHOOT_STATUSES: ShootStatus[] = [ShootStatus.SCHEDULED, ShootStatus.IN_PROGRESS, ShootStatus.COMPLETED];
+const formatDateKey = (date: Date) => date.toISOString().slice(0, 10);
+const hasKnownNonOverlappingTimes = (
+  next: { startTime?: Date | null; endTime?: Date | null },
+  existing: { startTime?: Date | null; endTime?: Date | null },
+) => {
+  if (!next.startTime || !next.endTime || !existing.startTime || !existing.endTime) return false;
+  return next.endTime.getTime() <= existing.startTime.getTime() || existing.endTime.getTime() <= next.startTime.getTime();
+};
 
 export interface ShootListQuery {
   page?: number;
@@ -211,7 +220,7 @@ export async function assignCrew(
   }
 
   return prisma.$transaction(async (tx) => {
-    const shoot = await findScoped<{ id: string; title: string; shootDate: Date }>(
+    const shoot = await findScoped<{ id: string; title: string; shootDate: Date; projectId: string; startTime?: Date | null; endTime?: Date | null }>(
       tx.shoot,
       auth.organizationId,
       shootId,
@@ -221,18 +230,29 @@ export async function assignCrew(
     if (input.userId) {
       const user = await tx.user.findFirst({
         where: { id: input.userId, organizationId: auth.organizationId, deletedAt: null },
-        select: { id: true },
+        select: { id: true, fullName: true },
       });
       if (!user) throw notFound('Team member');
+      const assignmentDate = formatDateKey(shoot.shootDate);
 
-      const sameDay = await tx.shootAssignment.count({
+      const sameDayAssignments = await tx.shootAssignment.findMany({
         where: {
           userId: input.userId,
           status: { notIn: ['DECLINED', 'CANCELLED'] },
-          shoot: { shootDate: shoot.shootDate, deletedAt: null },
+          shoot: {
+            id: { not: shoot.id },
+            projectId: { not: shoot.projectId },
+            shootDate: dateRangeFilter(assignmentDate, assignmentDate),
+            status: { in: BOOKING_BLOCKING_SHOOT_STATUSES },
+            deletedAt: null,
+          },
         },
+        select: { shoot: { select: { title: true, shootDate: true, startTime: true, endTime: true } }, user: { select: { fullName: true } } },
       });
-      if (sameDay > 0) throw conflict('This employee is already assigned on this date.');
+      const sameDay = sameDayAssignments.find((row) => !hasKnownNonOverlappingTimes(shoot, row.shoot));
+      if (sameDay) {
+        throw conflict(`${sameDay.user?.fullName || user.fullName} is already assigned on ${formatDateKey(sameDay.shoot.shootDate)} for "${sameDay.shoot.title}".`);
+      }
     } else {
       const freelancer = await tx.freelancer.findFirst({
         where: { id: input.freelancerId, organizationId: auth.organizationId, deletedAt: null },
@@ -243,13 +263,22 @@ export async function assignCrew(
         throw conflict('This freelancer is not currently active');
       }
 
-      const sameDay = await tx.shootAssignment.count({
+      const assignmentDate = formatDateKey(shoot.shootDate);
+      const sameDayAssignments = await tx.shootAssignment.findMany({
         where: {
           freelancerId: input.freelancerId,
           status: { notIn: ['DECLINED', 'CANCELLED'] },
-          shoot: { shootDate: shoot.shootDate, deletedAt: null },
+          shoot: {
+            id: { not: shoot.id },
+            projectId: { not: shoot.projectId },
+            shootDate: dateRangeFilter(assignmentDate, assignmentDate),
+            status: { in: BOOKING_BLOCKING_SHOOT_STATUSES },
+            deletedAt: null,
+          },
         },
+        select: { shoot: { select: { startTime: true, endTime: true } } },
       });
+      const sameDay = sameDayAssignments.filter((row) => !hasKnownNonOverlappingTimes(shoot, row.shoot)).length;
       if (sameDay >= freelancer.maxShootsPerDay) {
         throw conflict(
           `This freelancer is already booked for ${sameDay} shoot(s) on that date (limit ${freelancer.maxShootsPerDay})`,

@@ -293,6 +293,48 @@ async function main(): Promise<void> {
     console.warn(`  ${account.role.padEnd(13)} ${email}`);
   }
 
+  const freelancerEmail = 'freelancer@gmail.com';
+  const freelancerPassword = '1234';
+  const existingFreelancer = await prisma.freelancer.findFirst({
+    where: {
+      organizationId: organization.id,
+      OR: [{ code: 'FRL-DEMO' }, { email: freelancerEmail }],
+    },
+  });
+  if (existingFreelancer) {
+    await prisma.freelancer.update({
+      where: { id: existingFreelancer.id },
+      data: {
+        code: 'FRL-DEMO',
+        fullName: existingFreelancer.fullName || 'Demo Freelancer',
+        phone: existingFreelancer.phone || '+919900112233',
+        email: freelancerEmail,
+        passwordHash: await hashPassword(freelancerPassword),
+        status: 'ACTIVE',
+        failedLoginAttempts: 0,
+        lockedUntil: null,
+      },
+    });
+  } else {
+    await prisma.freelancer.create({
+      data: {
+        organizationId: organization.id,
+        code: 'FRL-DEMO',
+        fullName: 'Demo Freelancer',
+        phone: '+919900112233',
+        email: freelancerEmail,
+        city: 'Jaipur',
+        primarySkill: 'CANDID_PHOTOGRAPHER',
+        skills: ['Candid', 'Portrait'],
+        rate: '18000.00',
+        rateType: 'PER_DAY',
+        status: 'ACTIVE',
+        passwordHash: await hashPassword(freelancerPassword),
+      },
+    });
+  }
+  console.warn(`  Freelancer portal ${freelancerEmail}`);
+
   if (env.SEED_DEMO_DATA && !env.isProduction) {
     await seedDemoData(organization.id, branch.id);
   } else {
@@ -391,12 +433,14 @@ async function seedDemoData(organizationId: string, branchId: string): Promise<v
       code: 'FRL-0001',
       fullName: 'Rohit Candid',
       phone: '+919900112233',
+      email: 'freelancer@gmail.com',
       city: 'Jaipur',
       primarySkill: 'CANDID_PHOTOGRAPHER',
       skills: ['Candid', 'Portrait'],
       rate: '18000.00',
       rateType: 'PER_DAY',
       status: 'ACTIVE',
+      passwordHash: await hashPassword('1234'),
     },
   });
 
