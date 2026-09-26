@@ -10,7 +10,10 @@ import {
   itemIdParam,
   onboardingPasswordSchema,
   onboardingTokenParam,
+  portalAvailabilityDateParam,
+  portalAvailabilityQuery,
   portalAvailabilitySchema,
+  portalAvailabilityUpdateSchema,
   portalNotificationListQuery,
   portalPaymentListQuery,
   portalPortfolioCreateSchema,
@@ -37,7 +40,10 @@ router.post('/auth/logout', controller.logout);
 router.get('/me', controller.me);
 router.patch('/profile', validate({ body: freelancerProfileUpdateSchema }), controller.updateProfile);
 router.post('/password', authLimiter, validate({ body: setFreelancerPasswordSchema }), controller.setPassword);
+router.get('/availability', validate({ query: portalAvailabilityQuery }), controller.listAvailability);
 router.put('/availability', validate({ body: portalAvailabilitySchema }), controller.upsertAvailability);
+router.patch('/availability/:date', validate({ params: portalAvailabilityDateParam, body: portalAvailabilityUpdateSchema }), controller.updateAvailability);
+router.delete('/availability/:date', validate({ params: portalAvailabilityDateParam }), controller.deleteAvailability);
 router.post('/portfolio', validate({ body: portalPortfolioCreateSchema }), controller.createPortfolioItem);
 router.patch('/portfolio/:itemId', validate({ params: itemIdParam, body: portalPortfolioUpdateSchema }), controller.updatePortfolioItem);
 router.delete('/portfolio/:itemId', validate({ params: itemIdParam }), controller.deletePortfolioItem);

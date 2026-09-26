@@ -90,9 +90,25 @@ export const setPassword = asyncHandler(async (req, res) => {
   return sendSuccess(res, { passwordSet: true });
 });
 
+export const listAvailability = asyncHandler(async (req, res) => {
+  const auth = freelancer(req);
+  return sendSuccess(res, await service.listAvailability(auth.organizationId, auth.freelancerId, req.query));
+});
+
 export const upsertAvailability = asyncHandler(async (req, res) => {
   const auth = freelancer(req);
   return sendSuccess(res, await service.upsertAvailability(auth.organizationId, auth.freelancerId, req.body));
+});
+
+export const updateAvailability = asyncHandler(async (req, res) => {
+  const auth = freelancer(req);
+  return sendSuccess(res, await service.updateAvailability(auth.organizationId, auth.freelancerId, req.params.date, req.body));
+});
+
+export const deleteAvailability = asyncHandler(async (req, res) => {
+  const auth = freelancer(req);
+  await service.deleteAvailability(auth.organizationId, auth.freelancerId, req.params.date);
+  return sendNoContent(res);
 });
 
 export const createPortfolioItem = asyncHandler(async (req, res) => {

@@ -693,7 +693,7 @@ export const openApiDocument = {
         tags: ['Shoots'],
         summary: 'Assign a crew member',
         description:
-          'Exactly one of userId/freelancerId. Duplicate assignment to the same shoot and same-day over-booking of a freelancer are both rejected. Requires `SHOOT_ASSIGN`.',
+          'Exactly one of userId/freelancerId. The same person may hold multiple roles on one shoot. The same role twice, or another project on the same date, is rejected. Requires `SHOOT_ASSIGN`.',
         parameters: [PARAMS.id],
         requestBody: {
           required: true,

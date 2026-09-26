@@ -8,8 +8,9 @@ import { hashPassword, verifyPassword } from '../utils/password';
 import { AuditRequestContext, recordAudit } from './audit.service';
 import { money } from '../utils/money';
 import { isFreelancerSearchable } from './freelancer.service';
-import { toDateOnly } from '../utils/date';
+import { dateRangeFilter, toDateOnly } from '../utils/date';
 import { resolvePagination } from '../utils/pagination';
+import { nextDocumentNumber } from '../utils/documentNumber';
 
 const MAX_FAILED_ATTEMPTS = 5;
 const LOCK_DURATION_MS = 15 * 60 * 1000;
@@ -205,6 +206,7 @@ export async function logout(sessionId: string): Promise<void> {
 export async function submitApplication(input: {
   fullName: string;
   phone: string;
+  password: string;
   email?: string;
   city?: string;
   primarySkill?: Prisma.FreelancerApplicationCreateInput['primarySkill'];
@@ -220,30 +222,124 @@ export async function submitApplication(input: {
     select: { id: true },
   });
   if (!organization) throw notFound('Organization');
+  const normalizedEmail = input.email?.toLowerCase();
+  const existingFreelancer = await prisma.freelancer.findFirst({
+    where: {
+      organizationId: organization.id,
+      deletedAt: null,
+      OR: [{ phone: input.phone }, ...(normalizedEmail ? [{ email: normalizedEmail }] : [])],
+    },
+    select: { fullName: true, phone: true, email: true },
+  });
+  if (existingFreelancer) {
+    const freelancerName = existingFreelancer.fullName ? ` for ${existingFreelancer.fullName}` : '';
+    if (normalizedEmail && existingFreelancer.email?.toLowerCase() === normalizedEmail) {
+      throw conflict(`This email is already used by an existing freelancer${freelancerName}.`);
+    }
+    if (existingFreelancer.phone === input.phone) {
+      throw conflict(`This phone number is already used by an existing freelancer${freelancerName}.`);
+    }
+  }
   const duplicate = await prisma.freelancerApplication.findFirst({
     where: {
       organizationId: organization.id,
       status: { in: ['DRAFT', 'SUBMITTED', 'UNDER_REVIEW'] },
-      OR: [{ phone: input.phone }, ...(input.email ? [{ email: input.email.toLowerCase() }] : [])],
+      OR: [{ phone: input.phone }, ...(normalizedEmail ? [{ email: normalizedEmail }] : [])],
     },
-    select: { id: true },
+    select: { id: true, freelancerId: true, fullName: true, phone: true, email: true },
   });
-  if (duplicate) throw conflict('An active freelancer application already exists for this applicant');
-  return prisma.freelancerApplication.create({
-    data: {
-      organizationId: organization.id,
-      fullName: input.fullName,
-      phone: input.phone,
-      email: input.email?.toLowerCase(),
-      city: input.city,
-      primarySkill: input.primarySkill ?? 'LEAD_PHOTOGRAPHER',
-      skills: input.skills ?? [],
-      experienceYears: input.experienceYears,
-      portfolioUrl: input.portfolioUrl,
-      expectedRate: input.expectedRate === undefined ? undefined : money(input.expectedRate),
-      notes: input.notes,
-      status: 'SUBMITTED',
-    },
+  if (duplicate) {
+    if (!duplicate.freelancerId) {
+      return prisma.$transaction(async (tx) => {
+        const code = await nextDocumentNumber(tx, organization.id, 'FREELANCER');
+        const primarySkill = input.primarySkill ?? 'LEAD_PHOTOGRAPHER';
+        const skills = input.skills ?? [];
+        const expectedRate = input.expectedRate === undefined ? undefined : money(input.expectedRate);
+        const freelancer = await tx.freelancer.create({
+          data: {
+            organizationId: organization.id,
+            code,
+            fullName: input.fullName,
+            phone: input.phone,
+            email: normalizedEmail,
+            city: input.city,
+            primarySkill,
+            skills,
+            experienceYears: input.experienceYears,
+            rate: expectedRate,
+            rateType: 'PER_DAY',
+            notes: input.notes,
+            passwordHash: await hashPassword(input.password),
+            status: 'ACTIVE',
+          },
+        });
+        return tx.freelancerApplication.update({
+          where: { id: duplicate.id },
+          data: {
+            freelancerId: freelancer.id,
+            fullName: input.fullName,
+            phone: input.phone,
+            email: normalizedEmail,
+            city: input.city,
+            primarySkill,
+            skills,
+            experienceYears: input.experienceYears,
+            portfolioUrl: input.portfolioUrl,
+            expectedRate,
+            notes: input.notes,
+          },
+        });
+      });
+    }
+    const applicantName = duplicate.fullName ? ` for ${duplicate.fullName}` : '';
+    if (normalizedEmail && duplicate.email?.toLowerCase() === normalizedEmail) {
+      throw conflict(`This email is already used in an active freelancer application${applicantName}.`);
+    }
+    if (duplicate.phone === input.phone) {
+      throw conflict(`This phone number is already used in an active freelancer application${applicantName}.`);
+    }
+    throw conflict(`An active freelancer application already exists${applicantName}.`);
+  }
+  return prisma.$transaction(async (tx) => {
+    const code = await nextDocumentNumber(tx, organization.id, 'FREELANCER');
+    const primarySkill = input.primarySkill ?? 'LEAD_PHOTOGRAPHER';
+    const skills = input.skills ?? [];
+    const expectedRate = input.expectedRate === undefined ? undefined : money(input.expectedRate);
+    const freelancer = await tx.freelancer.create({
+      data: {
+        organizationId: organization.id,
+        code,
+        fullName: input.fullName,
+        phone: input.phone,
+        email: normalizedEmail,
+        city: input.city,
+        primarySkill,
+        skills,
+        experienceYears: input.experienceYears,
+        rate: expectedRate,
+        rateType: 'PER_DAY',
+        notes: input.notes,
+        passwordHash: await hashPassword(input.password),
+        status: 'ACTIVE',
+      },
+    });
+    return tx.freelancerApplication.create({
+      data: {
+        organizationId: organization.id,
+        freelancerId: freelancer.id,
+        fullName: input.fullName,
+        phone: input.phone,
+        email: normalizedEmail,
+        city: input.city,
+        primarySkill,
+        skills,
+        experienceYears: input.experienceYears,
+        portfolioUrl: input.portfolioUrl,
+        expectedRate,
+        notes: input.notes,
+        status: 'SUBMITTED',
+      },
+    });
   });
 }
 
@@ -262,6 +358,41 @@ export async function setPassword(organizationId: string, freelancerId: string, 
   await recordAudit(prisma, ctx, { action: 'UPDATE', entityType: 'Freelancer', entityId: freelancerId, summary: 'Freelancer portal password set' });
 }
 
+export async function listAvailability(organizationId: string, freelancerId: string, query: {
+  page?: number;
+  limit?: number;
+  from?: string;
+  to?: string;
+  status?: 'AVAILABLE' | 'PARTIALLY_AVAILABLE' | 'UNAVAILABLE';
+}) {
+  const pagination = resolvePagination(query);
+  const date = dateRangeFilter(query.from, query.to);
+  const where: Prisma.FreelancerAvailabilityWhereInput = {
+    freelancerId,
+    freelancer: { organizationId, deletedAt: null },
+    ...(query.status ? { status: query.status } : {}),
+    ...(date ? { date } : {}),
+  };
+  const [items, total] = await Promise.all([
+    prisma.freelancerAvailability.findMany({
+      where,
+      orderBy: { date: 'asc' },
+      skip: pagination.skip,
+      take: pagination.take,
+    }),
+    prisma.freelancerAvailability.count({ where }),
+  ]);
+  return {
+    items,
+    meta: {
+      page: pagination.page,
+      limit: pagination.limit,
+      total,
+      totalPages: Math.max(1, Math.ceil(total / pagination.limit)),
+    },
+  };
+}
+
 export async function upsertAvailability(organizationId: string, freelancerId: string, input: {
   date: string;
   status: 'AVAILABLE' | 'PARTIALLY_AVAILABLE' | 'UNAVAILABLE';
@@ -272,12 +403,48 @@ export async function upsertAvailability(organizationId: string, freelancerId: s
   if (input.startTime && input.endTime && input.endTime < input.startTime) {
     throw badRequest('endTime cannot be before startTime');
   }
+  const freelancer = await prisma.freelancer.findFirst({
+    where: { id: freelancerId, organizationId, deletedAt: null },
+    select: { id: true },
+  });
+  if (!freelancer) throw notFound('Freelancer');
   const date = toDateOnly(input.date);
   return prisma.freelancerAvailability.upsert({
     where: { freelancerId_date: { freelancerId, date } },
     create: { freelancerId, date, status: input.status, startTime: input.startTime, endTime: input.endTime, notes: input.notes },
     update: { status: input.status, startTime: input.startTime, endTime: input.endTime, notes: input.notes },
   });
+}
+
+export async function updateAvailability(organizationId: string, freelancerId: string, dateInput: string, input: {
+  status?: 'AVAILABLE' | 'PARTIALLY_AVAILABLE' | 'UNAVAILABLE';
+  startTime?: Date | null;
+  endTime?: Date | null;
+  notes?: string | null;
+}) {
+  if (input.startTime && input.endTime && input.endTime < input.startTime) {
+    throw badRequest('endTime cannot be before startTime');
+  }
+  const date = toDateOnly(dateInput);
+  const existing = await prisma.freelancerAvailability.findFirst({
+    where: { freelancerId, date, freelancer: { organizationId, deletedAt: null } },
+    select: { id: true },
+  });
+  if (!existing) throw notFound('Freelancer availability');
+  return prisma.freelancerAvailability.update({
+    where: { id: existing.id },
+    data: input,
+  });
+}
+
+export async function deleteAvailability(organizationId: string, freelancerId: string, dateInput: string) {
+  const date = toDateOnly(dateInput);
+  const existing = await prisma.freelancerAvailability.findFirst({
+    where: { freelancerId, date, freelancer: { organizationId, deletedAt: null } },
+    select: { id: true },
+  });
+  if (!existing) throw notFound('Freelancer availability');
+  await prisma.freelancerAvailability.delete({ where: { id: existing.id } });
 }
 
 export async function createPortfolioItem(organizationId: string, freelancerId: string, input: {

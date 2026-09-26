@@ -100,6 +100,15 @@ function normalize(error: unknown): Normalized {
     };
   }
 
+  if (error instanceof Prisma.PrismaClientInitializationError) {
+    return {
+      statusCode: 503,
+      code: 'SERVICE_UNAVAILABLE',
+      message: 'Database connection is unavailable. Please try again in a moment.',
+      details: [],
+    };
+  }
+
   const asHttp = error as { status?: number; statusCode?: number; type?: string };
   if (asHttp?.type === 'entity.too.large') {
     return {

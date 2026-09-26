@@ -13,10 +13,18 @@ export const dateOnly = z
 
 export const isoDateTime = z.coerce.date();
 
+function normalizeDecimalInput(value: string | number): string {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return String(value).trim();
+  const rounded = Math.round(n * 100) / 100;
+  if (Number.isInteger(rounded)) return String(rounded);
+  return rounded.toFixed(2).replace(/0+$/, '').replace(/\.$/, '');
+}
+
 /** Money accepted as a string or number, always with at most 2 decimals. */
 export const decimal = z
   .union([z.string(), z.number()])
-  .transform((v) => String(v))
+  .transform((v) => normalizeDecimalInput(v))
   .refine((v) => /^-?\d{1,12}(\.\d{1,2})?$/.test(v), 'Must be a number with at most 2 decimal places');
 
 export const positiveDecimal = decimal.refine(

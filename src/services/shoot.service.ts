@@ -9,6 +9,12 @@ import { AuditRequestContext, recordAudit } from './audit.service';
 
 const SORTABLE = ['shootDate', 'createdAt', 'title', 'status'] as const;
 const BOOKING_BLOCKING_SHOOT_STATUSES: ShootStatus[] = [ShootStatus.SCHEDULED, ShootStatus.IN_PROGRESS, ShootStatus.COMPLETED];
+/** Neon + audit writes can exceed Prisma's default 5s interactive transaction limit. */
+const SHOOT_TX_OPTIONS = { maxWait: 10_000, timeout: 15_000 } as const;
+const assignmentInclude = {
+  user: { select: { id: true, fullName: true } },
+  freelancer: { select: { id: true, fullName: true, code: true } },
+} as const;
 const formatDateKey = (date: Date) => date.toISOString().slice(0, 10);
 const hasKnownNonOverlappingTimes = (
   next: { startTime?: Date | null; endTime?: Date | null },
@@ -126,7 +132,7 @@ export async function createShoot(auth: AuthContext, input: CreateShootInput, ct
     });
 
     return shoot;
-  });
+  }, SHOOT_TX_OPTIONS);
 }
 
 export async function updateShoot(
@@ -165,8 +171,23 @@ export async function updateShoot(
       newData: updated,
     });
 
-    return updated;
-  });
+    return tx.shoot.findUniqueOrThrow({
+      where: { id },
+      include: {
+        project: { select: { id: true, projectNumber: true, name: true, clientId: true } },
+        event: true,
+        createdBy: { select: { id: true, fullName: true } },
+        assignments: {
+          orderBy: { createdAt: 'asc' },
+          include: {
+            user: { select: { id: true, fullName: true, email: true, phone: true } },
+            freelancer: { select: { id: true, fullName: true, code: true, phone: true } },
+            assignedBy: { select: { id: true, fullName: true } },
+          },
+        },
+      },
+    });
+  }, SHOOT_TX_OPTIONS);
 }
 
 export async function deleteShoot(auth: AuthContext, id: string, ctx: AuditRequestContext) {
@@ -187,7 +208,7 @@ export async function deleteShoot(auth: AuthContext, id: string, ctx: AuditReque
       summary: `Shoot ${shoot.title} permanently deleted`,
       oldData: shoot,
     });
-  });
+  }, SHOOT_TX_OPTIONS);
 }
 
 export interface AssignCrewInput {
@@ -206,8 +227,8 @@ export interface AssignCrewInput {
  *
  * Three separate guards, deliberately layered (§10, §36):
  *   1. exactly one of userId/freelancerId — checked here and by a CHECK constraint
- *   2. no duplicate assignment — unique (shoot, user) / (shoot, freelancer)
- *   3. no double-booking across shoots on the same date — checked here
+ *   2. no duplicate assignment for the same role — unique (shoot, user, role) / (shoot, freelancer, role)
+ *   3. one project per person per date — other projects on the same date are rejected
  */
 export async function assignCrew(
   auth: AuthContext,
@@ -289,11 +310,13 @@ export async function assignCrew(
     const existing = await tx.shootAssignment.findFirst({
       where: {
         shootId,
+        role: input.role,
+        status: { notIn: ['DECLINED', 'CANCELLED'] },
         ...(input.userId ? { userId: input.userId } : { freelancerId: input.freelancerId }),
       },
-      select: { id: true },
+      include: assignmentInclude,
     });
-    if (existing) throw conflict('This person is already assigned to this shoot');
+    if (existing) return existing;
 
     const assignment = await tx.shootAssignment.create({
       data: {
@@ -308,10 +331,7 @@ export async function assignCrew(
         notes: input.notes,
         assignedById: auth.userId,
       },
-      include: {
-        user: { select: { id: true, fullName: true } },
-        freelancer: { select: { id: true, fullName: true, code: true } },
-      },
+      include: assignmentInclude,
     });
 
     if (input.userId) {
@@ -337,7 +357,7 @@ export async function assignCrew(
     });
 
     return assignment;
-  });
+  }, SHOOT_TX_OPTIONS);
 }
 
 export async function updateAssignment(
@@ -365,6 +385,19 @@ export async function updateAssignment(
     });
     if (!assignment) throw notFound('Shoot assignment');
 
+    if (input.role) {
+      const duplicate = await tx.shootAssignment.findFirst({
+        where: {
+          id: { not: assignmentId },
+          shootId,
+          role: input.role,
+          ...(assignment.userId ? { userId: assignment.userId } : { freelancerId: assignment.freelancerId }),
+        },
+        select: { id: true },
+      });
+      if (duplicate) throw conflict('Employee is already assigned to this role.');
+    }
+
     const updated = await tx.shootAssignment.update({ where: { id: assignmentId }, data: input });
 
     await recordAudit(tx, ctx, {
@@ -377,7 +410,7 @@ export async function updateAssignment(
     });
 
     return updated;
-  });
+  }, SHOOT_TX_OPTIONS);
 }
 
 export async function removeAssignment(
@@ -409,5 +442,5 @@ export async function removeAssignment(
       summary: 'Crew removed from shoot',
       oldData: assignment,
     });
-  });
+  }, SHOOT_TX_OPTIONS);
 }

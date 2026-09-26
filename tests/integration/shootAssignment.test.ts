@@ -82,17 +82,33 @@ describe('shoot crew assignment', () => {
     expect(response.status).toBe(400);
   });
 
-  it('prevents assigning the same employee to the same shoot twice', async () => {
+  it('allows the same employee on multiple roles of one shoot', async () => {
     await authed(token)
+      .post(`${base}/shoots/${shootId}/assignments`)
+      .send({ userId: org.member.id, role: 'LEAD_PHOTOGRAPHER' })
+      .expect(201);
+
+    const secondRole = await authed(token)
+      .post(`${base}/shoots/${shootId}/assignments`)
+      .send({ userId: org.member.id, role: 'ASSISTANT' })
+      .expect(201);
+
+    expect(secondRole.body.data.role).toBe('ASSISTANT');
+    expect(await prisma.shootAssignment.count({ where: { shootId, userId: org.member.id } })).toBe(2);
+  });
+
+  it('returns the existing row when the same employee is assigned the same role again', async () => {
+    const created = await authed(token)
       .post(`${base}/shoots/${shootId}/assignments`)
       .send({ userId: org.member.id, role: 'LEAD_PHOTOGRAPHER' })
       .expect(201);
 
     const duplicate = await authed(token)
       .post(`${base}/shoots/${shootId}/assignments`)
-      .send({ userId: org.member.id, role: 'ASSISTANT' });
+      .send({ userId: org.member.id, role: 'LEAD_PHOTOGRAPHER' })
+      .expect(201);
 
-    expect(duplicate.status).toBe(409);
+    expect(duplicate.body.data.id).toBe(created.body.data.id);
     expect(await prisma.shootAssignment.count({ where: { shootId } })).toBe(1);
   });
 
@@ -127,17 +143,33 @@ describe('shoot crew assignment', () => {
       .expect(201);
   });
 
-  it('prevents assigning the same freelancer to the same shoot twice', async () => {
+  it('allows the same freelancer on multiple roles of one shoot', async () => {
     await authed(token)
+      .post(`${base}/shoots/${shootId}/assignments`)
+      .send({ freelancerId, role: 'CANDID_PHOTOGRAPHER' })
+      .expect(201);
+
+    const secondRole = await authed(token)
+      .post(`${base}/shoots/${shootId}/assignments`)
+      .send({ freelancerId, role: 'DRONE_OPERATOR' })
+      .expect(201);
+
+    expect(secondRole.body.data.role).toBe('DRONE_OPERATOR');
+    expect(await prisma.shootAssignment.count({ where: { shootId, freelancerId } })).toBe(2);
+  });
+
+  it('returns the existing row when the same freelancer is assigned the same role again', async () => {
+    const created = await authed(token)
       .post(`${base}/shoots/${shootId}/assignments`)
       .send({ freelancerId, role: 'CANDID_PHOTOGRAPHER' })
       .expect(201);
 
     const duplicate = await authed(token)
       .post(`${base}/shoots/${shootId}/assignments`)
-      .send({ freelancerId, role: 'DRONE_OPERATOR' });
+      .send({ freelancerId, role: 'CANDID_PHOTOGRAPHER' })
+      .expect(201);
 
-    expect(duplicate.status).toBe(409);
+    expect(duplicate.body.data.id).toBe(created.body.data.id);
   });
 
   it('blocks over-booking a freelancer beyond their daily limit', async () => {
