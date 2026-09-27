@@ -803,17 +803,19 @@ export async function getProject(organizationId: string, freelancerId: string, p
   return { ...project, shoots: project.shoots.map((shoot) => toShootSummary(shoot, freelancerId)), tasks: project.tasks.map(toTaskSummary) };
 }
 
-export async function listShoots(organizationId: string, freelancerId: string, query: { page?: number; limit?: number; view?: string; search?: string }) {
+export async function listShoots(organizationId: string, freelancerId: string, query: { page?: number; limit?: number; view?: string; search?: string; from?: string; to?: string }) {
   const { page, limit, skip, take } = resolvePagination(query);
   const { start, end } = todayBounds();
   const now = new Date();
+  const date = dateRangeFilter(query.from, query.to);
   const where: Prisma.ShootWhereInput = {
     assignments: { some: assignmentWhere(organizationId, freelancerId) },
     deletedAt: null,
     ...(query.search ? { title: { contains: query.search, mode: 'insensitive' } } : {}),
-    ...(query.view === 'today' ? { shootDate: { gte: start, lt: end } } : {}),
-    ...(query.view === 'completed' ? { OR: [{ status: 'COMPLETED' }, { shootDate: { lt: start } }] } : {}),
-    ...(!query.view || query.view === 'upcoming' ? { shootDate: { gte: now } } : {}),
+    ...(date ? { shootDate: date } : {}),
+    ...(!date && query.view === 'today' ? { shootDate: { gte: start, lt: end } } : {}),
+    ...(!date && query.view === 'completed' ? { OR: [{ status: 'COMPLETED' }, { shootDate: { lt: start } }] } : {}),
+    ...(!date && (!query.view || query.view === 'upcoming') ? { shootDate: { gte: now } } : {}),
   };
   const [total, rows] = await Promise.all([
     prisma.shoot.count({ where }),
