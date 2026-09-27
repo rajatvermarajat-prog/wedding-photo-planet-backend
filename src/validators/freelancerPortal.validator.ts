@@ -86,6 +86,8 @@ export const portalAvailabilityUpdateSchema = portalAvailabilityBaseSchema
   });
 
 export const portalAvailabilityQuery = listQuery.extend({
+  from: dateOnly.optional(),
+  to: dateOnly.optional(),
   status: FREELANCER_AVAILABILITY_STATUS.optional(),
 });
 
@@ -116,6 +118,8 @@ export const portalProjectListQuery = listQuery.extend({
 
 export const portalShootListQuery = listQuery.extend({
   view: z.enum(['upcoming', 'today', 'completed', 'all']).default('upcoming'),
+  from: dateOnly.optional(),
+  to: dateOnly.optional(),
 });
 
 export const portalTaskListQuery = listQuery.extend({
