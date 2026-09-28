@@ -78,6 +78,13 @@ const schema = z.object({
   STORAGE_PUBLIC_BASE_URL: z.string().optional(),
   SIGNED_URL_TTL_SECONDS: int(900),
 
+  META_APP_ID: z.string().optional(),
+  META_APP_SECRET: z.string().optional(),
+  META_PAGE_ID: z.string().optional(),
+  META_PAGE_ACCESS_TOKEN: z.string().optional(),
+  META_WEBHOOK_VERIFY_TOKEN: z.string().optional(),
+  META_GRAPH_API_VERSION: z.string().regex(/^v\d+\.\d+$/).default('v26.0'),
+
   SEED_ORG_NAME: z.string().default('Wedding Photo Planet'),
   SEED_ORG_SLUG: z.string().default('wedding-photo-planet'),
   SEED_ADMIN_EMAIL: z.string().email().default('admin@example.com'),

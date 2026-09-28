@@ -105,6 +105,16 @@ export interface CreateLeadInput {
   notes?: string;
 }
 
+export interface CreateExternalLeadInput extends CreateLeadInput {
+  organizationId: string;
+  externalProvider: string;
+  externalId: string;
+  externalFormId?: string;
+  externalAdId?: string;
+  rawPayload?: Prisma.InputJsonValue;
+  customFields?: Prisma.InputJsonValue;
+}
+
 export async function createLead(auth: AuthContext, input: CreateLeadInput, ctx: AuditRequestContext) {
   if (!canAccessAllLeads(auth) && input.ownerId && input.ownerId !== auth.userId) {
     throw forbidden('Employees can create leads only for themselves');
@@ -139,6 +149,54 @@ export async function createLead(auth: AuthContext, input: CreateLeadInput, ctx:
     });
     return lead;
   });
+}
+
+export async function upsertExternalLead(input: CreateExternalLeadInput) {
+  const provider = input.externalProvider.trim().toUpperCase();
+  try {
+    return await prisma.lead.upsert({
+      where: {
+        organizationId_externalProvider_externalId: {
+          organizationId: input.organizationId,
+          externalProvider: provider,
+          externalId: input.externalId,
+        },
+      },
+      create: {
+        organizationId: input.organizationId,
+        name: input.name,
+        phone: input.phone,
+        email: input.email?.toLowerCase(),
+        sourceId: input.sourceId,
+        eventType: input.eventType,
+        eventDate: input.eventDate,
+        venueCity: input.venueCity,
+        estimatedValue: input.estimatedValue ?? 0,
+        nextFollowUpAt: input.nextFollowUpAt,
+        notes: input.notes,
+        externalProvider: provider,
+        externalId: input.externalId,
+        externalFormId: input.externalFormId,
+        externalAdId: input.externalAdId,
+        rawPayload: input.rawPayload,
+        customFields: input.customFields,
+      },
+      update: {
+        sourceId: input.sourceId,
+        externalFormId: input.externalFormId,
+        externalAdId: input.externalAdId,
+        rawPayload: input.rawPayload,
+        customFields: input.customFields,
+      },
+    });
+  } catch (error) {
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+      throw conflict('External lead already exists', [
+        { field: 'externalId', message: 'Must be unique per organization and provider' },
+      ]);
+    }
+    throw error;
+  }
 }
 
 export async function updateLead(
