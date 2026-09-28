@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { requireAuth } from '../middleware/auth';
 import authRoutes from './auth.routes';
 import freelancerPortalRoutes from './freelancerPortal.routes';
+import { metaIntegrationRouter } from './integration.routes';
 import { clientRouter, leadRouter } from './crm.routes';
 import { dashboardRouter } from './dashboard.routes';
 import { settingsWorkspaceRouter } from './settings.routes';
@@ -28,6 +29,7 @@ const router = Router();
 // Public (rate-limited) authentication surface.
 router.use('/auth', authRoutes);
 router.use('/freelancer-portal', freelancerPortalRoutes);
+router.use('/integrations/meta', metaIntegrationRouter);
 
 // Everything below requires a valid session; each route additionally names the
 // permission it needs (§6 — authorization is never left to the frontend).

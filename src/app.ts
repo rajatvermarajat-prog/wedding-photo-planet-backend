@@ -83,7 +83,14 @@ export function createApp() {
     }),
   );
 
-  app.use(express.json({ limit: env.JSON_BODY_LIMIT }));
+  app.use(
+    express.json({
+      limit: env.JSON_BODY_LIMIT,
+      verify: (req, _res, buf) => {
+        (req as Request & { rawBody?: Buffer }).rawBody = Buffer.from(buf);
+      },
+    }),
+  );
   app.use(express.urlencoded({ extended: true, limit: env.JSON_BODY_LIMIT }));
   app.use(cookieParser());
 

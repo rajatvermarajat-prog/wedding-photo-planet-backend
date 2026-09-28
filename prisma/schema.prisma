@@ -498,6 +498,7 @@ model Organization {
   permissionOverrides UserPermissionOverride[]
   leadSources      LeadSource[]
   leads            Lead[]
+  metaLeadIntegrations MetaLeadIntegration[]
   clients          Client[]
   projects         Project[]
   eventTypes       EventType[]
@@ -921,6 +922,12 @@ model Lead {
   lostReason     String?    @map("lost_reason") @db.VarChar(255)
   convertedAt    DateTime?  @map("converted_at") @db.Timestamptz(6)
   notes          String?    @db.Text
+  externalProvider String?  @map("external_provider") @db.VarChar(40)
+  externalId     String?    @map("external_id") @db.VarChar(120)
+  externalFormId String?    @map("external_form_id") @db.VarChar(120)
+  externalAdId   String?    @map("external_ad_id") @db.VarChar(120)
+  rawPayload     Json?      @map("raw_payload") @db.JsonB
+  customFields   Json?      @map("custom_fields") @db.JsonB
   createdById    String?    @map("created_by_id") @db.Uuid
   createdAt      DateTime   @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt      DateTime   @updatedAt @map("updated_at") @db.Timestamptz(6)
@@ -941,7 +948,29 @@ model Lead {
   @@index([ownerId, status])
   @@index([sourceId])
   @@index([phone])
+  @@index([organizationId, externalProvider])
+  @@unique([organizationId, externalProvider, externalId])
   @@map("leads")
+}
+
+model MetaLeadIntegration {
+  id             String    @id @default(uuid()) @db.Uuid
+  organizationId String    @map("organization_id") @db.Uuid
+  pageId         String    @map("page_id") @db.VarChar(120)
+  pageName       String?   @map("page_name") @db.VarChar(160)
+  isActive       Boolean   @default(true) @map("is_active")
+  webhookVerifiedAt DateTime? @map("webhook_verified_at") @db.Timestamptz(6)
+  lastWebhookAt  DateTime? @map("last_webhook_at") @db.Timestamptz(6)
+  lastError      String?   @map("last_error") @db.Text
+  settings       Json?     @db.JsonB
+  createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([pageId])
+  @@index([organizationId, isActive])
+  @@map("meta_lead_integrations")
 }
 
 model LeadFollowUp {
