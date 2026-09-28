@@ -1035,7 +1035,11 @@ export async function createConnection(
       'Freelancer',
       { select: { id: true, fullName: true, maxShootsPerDay: true } },
     );
-    if (!(await isFreelancerSearchable(auth.organizationId, input.freelancerId))) {
+    const searchable = await tx.freelancer.findFirst({
+      where: { id: input.freelancerId, ...searchableFreelancerWhere(auth.organizationId) },
+      select: { id: true },
+    });
+    if (!searchable) {
       throw conflict('This freelancer is not currently searchable');
     }
     if (input.projectId) await findScoped(tx.project, auth.organizationId, input.projectId, 'Project');
@@ -1133,7 +1137,11 @@ export async function connectConnection(
       include: { freelancer: { select: { id: true, fullName: true, primarySkill: true, maxShootsPerDay: true } } },
     });
     if (!existing) throw notFound('Freelancer connection');
-    if (!(await isFreelancerSearchable(auth.organizationId, existing.freelancerId))) {
+    const searchable = await tx.freelancer.findFirst({
+      where: { id: existing.freelancerId, ...searchableFreelancerWhere(auth.organizationId) },
+      select: { id: true },
+    });
+    if (!searchable) {
       throw conflict('This freelancer is not currently searchable');
     }
     const project = await findScoped<{ id: string; name: string }>(
@@ -1144,22 +1152,53 @@ export async function connectConnection(
       { select: { id: true, name: true } },
     );
 
-    let assignment: unknown = null;
-    let nextStatus: FreelancerConnectionStatus = 'ACCEPTED';
-    if (input.shootId) {
-      const shoot = await findScoped<{ id: string; title: string; projectId: string; shootDate: Date }>(
+    const selectedShoot = input.shootId
+      ? await findScoped<{ id: string; title: string; projectId: string; shootDate: Date }>(
         tx.shoot,
         auth.organizationId,
         input.shootId,
         'Shoot',
         { select: { id: true, title: true, projectId: true, shootDate: true } },
-      );
-      if (shoot.projectId !== project.id) throw conflict('Shoot does not belong to the selected project');
+      )
+      : null;
+    if (selectedShoot && selectedShoot.projectId !== project.id) {
+      throw conflict('Shoot does not belong to the selected project');
+    }
+
+    if (existing.status !== 'ACCEPTED') {
+      const requested = await tx.freelancerConnection.update({
+        where: { id },
+        data: {
+          projectId: project.id,
+          shootId: input.shootId ?? null,
+          status: 'CONTACTED',
+          notes: input.notes ?? existing.notes,
+        },
+        include: {
+          freelancer: { select: { id: true, code: true, fullName: true, primarySkill: true, city: true } },
+          project: { select: { id: true, projectNumber: true, name: true } },
+          shoot: { select: { id: true, title: true, shootDate: true } },
+        },
+      });
+      await recordAudit(tx, ctx, {
+        action: 'UPDATE',
+        entityType: 'FreelancerConnection',
+        entityId: id,
+        summary: `Freelancer approval requested for project ${project.name}`,
+        oldData: existing,
+        newData: requested,
+      });
+      return { connection: requested, assignment: null };
+    }
+
+    let assignment: unknown = null;
+    let nextStatus: FreelancerConnectionStatus = 'ACCEPTED';
+    if (selectedShoot) {
       const sameDay = await tx.shootAssignment.count({
         where: {
           freelancerId: existing.freelancerId,
           status: { notIn: ['DECLINED', 'CANCELLED'] },
-          shoot: { projectId: { not: project.id }, shootDate: shoot.shootDate, deletedAt: null },
+          shoot: { projectId: { not: project.id }, shootDate: selectedShoot.shootDate, deletedAt: null },
         },
       });
       if (sameDay >= existing.freelancer.maxShootsPerDay) {
@@ -1168,7 +1207,7 @@ export async function connectConnection(
       const assignmentRole = input.role ?? existing.freelancer.primarySkill ?? 'OTHER';
       const duplicateAssignment = await tx.shootAssignment.findFirst({
         where: {
-          shootId: shoot.id,
+          shootId: selectedShoot.id,
           freelancerId: existing.freelancerId,
           role: assignmentRole,
           status: { notIn: ['DECLINED', 'CANCELLED'] },
@@ -1178,7 +1217,7 @@ export async function connectConnection(
       if (duplicateAssignment) throw conflict('This freelancer is already assigned to this shoot in that role');
       assignment = await tx.shootAssignment.create({
         data: {
-          shootId: shoot.id,
+          shootId: selectedShoot.id,
           freelancerId: existing.freelancerId,
           role: assignmentRole,
           assignedById: auth.userId,
@@ -1208,7 +1247,7 @@ export async function connectConnection(
         action: 'ASSIGN',
         entityType: 'ShootAssignment',
         entityId: (assignment as { id: string }).id,
-        summary: `Freelancer assigned through marketplace connection`,
+        summary: 'Freelancer assigned after approval',
         newData: assignment,
       });
     }

@@ -135,3 +135,8 @@ export const portalNotificationListQuery = listQuery.extend({
 export const portalTaskStatusUpdateSchema = z.object({
   status: TASK_STATUS,
 });
+
+export const portalConnectionResponseSchema = z.object({
+  status: z.enum(['ACCEPTED', 'DECLINED']),
+  notes: z.string().max(5000).optional().nullable(),
+});

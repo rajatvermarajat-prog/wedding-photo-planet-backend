@@ -111,6 +111,20 @@ export const deleteAvailability = asyncHandler(async (req, res) => {
   return sendNoContent(res);
 });
 
+export const respondToConnection = asyncHandler(async (req, res) => {
+  const auth = freelancer(req);
+  return sendSuccess(
+    res,
+    await service.respondToConnection(auth.organizationId, auth.freelancerId, req.params.id, req.body, {
+      organizationId: auth.organizationId,
+      actorId: null,
+      ipAddress: req.ip ?? null,
+      userAgent: req.header('user-agent') ?? null,
+      requestId: req.requestId ?? null,
+    }),
+  );
+});
+
 export const createPortfolioItem = asyncHandler(async (req, res) => {
   const auth = freelancer(req);
   return sendCreated(res, await service.createPortfolioItem(auth.organizationId, auth.freelancerId, req.body));
