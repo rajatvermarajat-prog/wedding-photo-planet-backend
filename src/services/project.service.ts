@@ -31,7 +31,8 @@ const hasKnownNonOverlappingTimes = (
 
 /**
  * Legal status transitions. A project cannot jump from LEAD straight to
- * COMPLETED, and terminal states are terminal.
+ * COMPLETED. Completed projects may move back to delivery when the studio
+ * needs to correct a premature completion.
  */
 const ALLOWED_TRANSITIONS: Record<ProjectStatus, ProjectStatus[]> = {
   UPCOMING: ['CONFIRMED', 'CANCELLED'],
@@ -41,7 +42,7 @@ const ALLOWED_TRANSITIONS: Record<ProjectStatus, ProjectStatus[]> = {
   SHOOTING: ['EDITING', 'CANCELLED'],
   EDITING: ['DELIVERY', 'CANCELLED'],
   DELIVERY: ['COMPLETED', 'EDITING', 'CANCELLED'],
-  COMPLETED: [],
+  COMPLETED: ['DELIVERY'],
   CANCELLED: [],
 };
 
