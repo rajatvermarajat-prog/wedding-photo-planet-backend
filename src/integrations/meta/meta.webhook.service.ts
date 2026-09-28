@@ -14,9 +14,24 @@ function timingSafeEqual(a: string, b: string): boolean {
   return left.length === right.length && crypto.timingSafeEqual(left, right);
 }
 
+function normalizeVerifyToken(value: string): string {
+  const trimmed = value.trim();
+  const first = trimmed[0];
+  const last = trimmed[trimmed.length - 1];
+  if ((first === '"' || first === "'") && first === last) {
+    return trimmed.slice(1, -1);
+  }
+  return trimmed;
+}
+
 export function verifyChallenge(query: Record<string, unknown>): string {
   const config = requireMetaConfig();
-  if (query['hub.mode'] !== 'subscribe' || query['hub.verify_token'] !== config.verifyToken) {
+  const verifyToken = query['hub.verify_token'];
+  if (
+    query['hub.mode'] !== 'subscribe'
+    || typeof verifyToken !== 'string'
+    || !timingSafeEqual(normalizeVerifyToken(verifyToken), config.verifyToken)
+  ) {
     throw forbidden('Invalid Meta webhook verification token');
   }
   const challenge = query['hub.challenge'];
