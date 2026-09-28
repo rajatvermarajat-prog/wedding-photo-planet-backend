@@ -60,7 +60,15 @@ const profileInclude = {
   availability: { orderBy: { date: 'asc' as const }, take: 30 },
   portfolioItems: { include: { fileObject: true }, orderBy: [{ sortOrder: 'asc' as const }, { createdAt: 'desc' as const }] },
   applications: { orderBy: { createdAt: 'desc' as const }, take: 5 },
-  connections: { orderBy: { createdAt: 'desc' as const }, take: 20 },
+  connections: {
+    orderBy: { createdAt: 'desc' as const },
+    take: 20,
+    include: {
+      project: { select: { id: true, projectNumber: true, name: true } },
+      shoot: { select: { id: true, title: true, shootDate: true } },
+      createdBy: { select: { id: true, fullName: true } },
+    },
+  },
   assignments: {
     orderBy: { createdAt: 'desc' as const },
     take: 20,
@@ -487,6 +495,49 @@ export async function deleteAvailability(organizationId: string, freelancerId: s
   });
   if (!existing) throw notFound('Freelancer availability');
   await prisma.freelancerAvailability.delete({ where: { id: existing.id } });
+}
+
+export async function respondToConnection(
+  organizationId: string,
+  freelancerId: string,
+  connectionId: string,
+  input: { status: 'ACCEPTED' | 'DECLINED'; notes?: string | null },
+  ctx: AuditRequestContext,
+) {
+  return prisma.$transaction(async (tx) => {
+    const existing = await tx.freelancerConnection.findFirst({
+      where: { id: connectionId, organizationId, freelancerId },
+      include: {
+        project: { select: { id: true, projectNumber: true, name: true } },
+        shoot: { select: { id: true, title: true, shootDate: true } },
+      },
+    });
+    if (!existing) throw notFound('Freelancer connection');
+    if (!['INTERESTED', 'CONTACTED', 'ACCEPTED'].includes(existing.status)) {
+      throw conflict(`Cannot respond to a ${existing.status} connection`);
+    }
+    const updated = await tx.freelancerConnection.update({
+      where: { id: connectionId },
+      data: {
+        status: input.status,
+        notes: input.notes === undefined ? existing.notes : input.notes,
+      },
+      include: {
+        project: { select: { id: true, projectNumber: true, name: true } },
+        shoot: { select: { id: true, title: true, shootDate: true } },
+        createdBy: { select: { id: true, fullName: true } },
+      },
+    });
+    await recordAudit(tx, ctx, {
+      action: 'UPDATE',
+      entityType: 'FreelancerConnection',
+      entityId: connectionId,
+      summary: `Freelancer ${input.status.toLowerCase()} connection`,
+      oldData: existing,
+      newData: updated,
+    });
+    return updated;
+  });
 }
 
 export async function createPortfolioItem(organizationId: string, freelancerId: string, input: {

@@ -14,6 +14,7 @@ import {
   portalAvailabilityQuery,
   portalAvailabilitySchema,
   portalAvailabilityUpdateSchema,
+  portalConnectionResponseSchema,
   portalNotificationListQuery,
   portalPaymentListQuery,
   portalPortfolioCreateSchema,
@@ -44,6 +45,7 @@ router.get('/availability', validate({ query: portalAvailabilityQuery }), contro
 router.put('/availability', validate({ body: portalAvailabilitySchema }), controller.upsertAvailability);
 router.patch('/availability/:date', validate({ params: portalAvailabilityDateParam, body: portalAvailabilityUpdateSchema }), controller.updateAvailability);
 router.delete('/availability/:date', validate({ params: portalAvailabilityDateParam }), controller.deleteAvailability);
+router.patch('/connections/:id', validate({ params: portalResourceIdParam, body: portalConnectionResponseSchema }), controller.respondToConnection);
 router.post('/portfolio', validate({ body: portalPortfolioCreateSchema }), controller.createPortfolioItem);
 router.patch('/portfolio/:itemId', validate({ params: itemIdParam, body: portalPortfolioUpdateSchema }), controller.updatePortfolioItem);
 router.delete('/portfolio/:itemId', validate({ params: itemIdParam }), controller.deletePortfolioItem);
